@@ -1,0 +1,1235 @@
+---
+title: "0619_DMLA"
+author: "Ruiting Tong"
+date: "2026-06-19"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ks)
+library(LaplacesDemon)
+library(nleqslv)
+
+##
+## Fn: zeroth order oracle
+## x0: initial point
+## K: # iterations in the outer loop 
+## eta0: initial step size in the Euler Maruyama algorithm
+## rho: geometric decay of eta
+## lam: the regularizer in the log barrier mirror map
+## grad_method: forward / center; defines the manner of computing the gradient
+## s0: the s in the gradient calculation is s0*eta^power, power = 1/4 if grad_method = forward and 1/6 if grad_method = center.
+## multiplier: multiplies the number of inner loops by this factor
+## A, b: linear constraints
+## scale: scale the gradient down by this factor
+## message: print iteration + sample
+##
+DMLA_new = function(Fn, x0, K, eta0, rho, lam, grad_method, s0, multiplier, A, b, scale, message, ...){
+  #phi
+  d = length(x0)
+  phi = function(x, lam){
+    r = -sum(log(-(A%*%x - b))) + lam*sum(x^2)/2
+    return(r)
+  }
+  
+  # Nabla phi
+  nabla_phi = function(x,lam){
+    r1 = A%*%x - b
+    r = -t(A)%*%(1/r1) + lam*x
+    return(r)
+  }
+  
+  # Hessian
+  Hess = function(x, lam){
+    r1 = A%*%x - b
+    D = diag(1/as.vector(r1)^2)
+    H = t(A)%*%D%*%A + lam*diag(length(x))
+    return(H)
+  }
+  
+  # Hessian^0.5
+  sHess = function(x, lam){
+    decomp = eigen(Hess(x, lam))
+    V = decomp$vectors
+    L = decomp$values
+    return(V %*% diag(sqrt(L)) %*% t(V))
+  }
+  
+  # Check if the constraint is satisfied.
+  #check_constraint = function(x, dX){
+  #  return(all(x[not_diag(dX)]<0))
+  #}  
+  
+  
+  # Inverse of nabla phi
+  inv_nabla_phi = function(y,lam){
+    g =function(x){
+        nabla_phi(x, lam) - y
+    }
+    x = nleqslv(rep(-0.01, ncol(A)), g)$x
+    return(x)
+  }
+  
+  # inv_nabla_phi = function(y,lam){
+  #   z = numeric(d)
+  #   non_diag = not_diag(floor(sqrt(2*d)))
+  #   for(i in 1:d){
+  #     if(non_diag[i]){
+  #       z[i] = (y[i] - sqrt(y[i]^2 + 4*lam))/(2*lam)
+  #     }else{
+  #       z[i] = y[i]/lam
+  #     }
+  #   }
+  #   return(z)
+  # }
+  
+  # Estimate gradient
+  grad_est_centered = function(Fn, x, eps, ...){
+    est = numeric(d)
+    for(i in 1:d){
+      ei = numeric(d)
+      ei[i] = 1
+      x1 = inv_nabla_phi(nabla_phi(x, lam) - ei*eps, lam)
+      x2 = inv_nabla_phi(nabla_phi(x, lam) + ei*eps, lam)
+      F1 = Fn(x1, ...)
+      F2 = Fn(x2, ...)
+      est[i] = (F2 - F1)/(2*eps)
+    }
+    return(est)
+  }
+  
+  grad_est_forward = function(Fn, x, eps, ...){
+    est = numeric(d)
+    F0 = Fn(x, ...)
+    for(i in 1:d){
+      ei = numeric(d)
+      ei[i] = 1
+      x1 = inv_nabla_phi(nabla_phi(x, lam) + ei*eps, lam)
+      F1 = Fn(x1, ...)
+      est[i] = (F1-F0)/eps
+    }
+    return(est)
+  }
+  
+  
+  ## Choose which gradient estimate to use
+  grad_est = NULL
+  
+  if(grad_method == "center"){
+    grad_est = grad_est_centered
+    power = 1/6
+  }else{
+    grad_est = grad_est_forward
+    power = 1/4
+  }
+  
+  eta = eta0
+  
+  #if(length(x0) != d){
+  #  print("Length of x0 is incorrect for data X.")
+  #  return()
+  #}
+  
+  xs = matrix(numeric(K*d), nrow = d)
+  ys = matrix(numeric(K*d), nrow = d)
+  all_x = matrix(ncol = 0, nrow = d)
+  outer_loop_index = numeric(K)
+  
+  
+  xs[,1] = x0
+  ys[,1] = nabla_phi(x0, lam)
+  outer_loop_index[1] = 1
+  
+  t1 = Sys.time()
+  for(i in 2:K){
+    ti = ceiling(multiplier/eta)
+    inner_xs = matrix(ncol = ti, nrow = d)
+    inner_ys = matrix(ncol = ti, nrow = d) 
+    inner_xs[,1] = xs[,i-1]
+    inner_ys[,1] = ys[,i-1]
+    eps = s0*eta^power
+    
+    #if(i %% 10 == 0){print(i)}
+
+    if(ti >= 2){
+      for (j in 2:ti){
+        noi = rnorm(d,0,1)
+        inner_ys[,j] = inner_ys[,j-1] - eta*grad_est(Fn, inner_xs[,j-1], eps, ...)/scale + 
+          sqrt(2*eta/scale)*sHess(inner_xs[,j-1], lam)%*%noi
+        inner_xs[,j] = inv_nabla_phi(inner_ys[,j], lam)
+      }
+    }
+    
+    xs[,i] = inner_xs[,ti]
+    ys[,i] = inner_ys[,ti]
+    all_x = cbind(all_x, inner_xs)
+    outer_loop_index[i] = outer_loop_index[i-1] + ti - 1
+    eta = rho*eta
+    
+    if(message){
+      print(paste("iteration:", i ," sample:", paste(xs[,i], collapse = " ")))
+    }
+  }
+  t2 = Sys.time() - t1
+  return(list("primal_samples" = xs, "dual_samples" = ys, "time" = t2, "all_x" = all_x, "outer_loop_indices" = outer_loop_index))
+}
+
+
+##
+## uses gradient
+##
+##
+DMLA_new_grad = function(grad, x0, K, eta0, rho, lam, multiplier, A, b, scale, message, ...){
+  #phi
+  d = length(x0)
+  phi = function(x, lam){
+    r = -sum(log(-(A%*%x - b))) + lam*sum(x^2)/2
+    return(r)
+  }
+  
+  # Nabla phi
+  nabla_phi = function(x,lam){
+    r1 = A%*%x - b
+    r = -t(A)%*%(1/r1) + lam*x
+    return(r)
+  }
+  
+  # Hessian
+  Hess = function(x, lam){
+    r1 = A%*%x - b
+    D = diag(1/as.vector(r1)^2)
+    H = t(A)%*%D%*%A + lam*diag(length(x))
+    return(H)
+  }
+  
+  # Hessian^0.5
+  sHess = function(x, lam){
+    decomp = eigen(Hess(x, lam))
+    V = decomp$vectors
+    L = decomp$values
+    return(V %*% diag(sqrt(L)) %*% t(V))
+  }
+  
+  # Check if the constraint is satisfied.
+  #check_constraint = function(x, dX){
+  #  return(all(x[not_diag(dX)]<0))
+  #}  
+  
+  
+  # Inverse of nabla phi
+  inv_nabla_phi = function(y,lam){
+    g =function(x){
+        nabla_phi(x, lam) - y
+    }
+    x = nleqslv(rep(-0.01, ncol(A)), g)$x
+    return(x)
+  }
+  
+  #if(length(x0) != d){
+  #  print("Length of x0 is incorrect for data X.")
+  #  return()
+  #}
+  eta = eta0
+  
+  xs = matrix(numeric(K*d), nrow = d)
+  ys = matrix(numeric(K*d), nrow = d)
+  all_x = matrix(ncol = 0, nrow = d)
+  outer_loop_index = numeric(K)
+  
+  xs[,1] = x0
+  ys[,1] = nabla_phi(x0, lam)
+  outer_loop_index[1] = 1
+  
+  t1 = Sys.time()
+  for(i in 2:K){
+    ti = ceiling(multiplier/eta)
+    inner_xs = matrix(ncol = ti, nrow = d)
+    inner_ys = matrix(ncol = ti, nrow = d) 
+    inner_xs[,1] = xs[,i-1]
+    inner_ys[,1] = ys[,i-1]
+
+    #if(i %% 10 == 0){print(i)}
+    if(ti >= 2){
+      for (j in 2:ti){
+        noi = rnorm(d,0,1)
+        inner_ys[,j] = inner_ys[,j-1] - eta*grad(x = inner_xs[,j-1], lam = lam, ...)/scale + 
+          sqrt(2*eta/scale)*sHess(inner_xs[,j-1], lam)%*%noi
+        inner_xs[,j] = inv_nabla_phi(inner_ys[,j], lam)
+      }
+    }
+
+    xs[,i] = inner_xs[,ti]
+    ys[,i] = inner_ys[,ti]
+    all_x = cbind(all_x, inner_xs)
+    outer_loop_index[i] = outer_loop_index[i-1] + ti - 1
+    eta = rho*eta
+    
+        
+    if(message){
+      print(paste("iteration:", i ," sample:", paste(xs[,i], collapse = " ")))
+    }
+  }
+  t2 = Sys.time() - t1
+  return(list("primal_samples" = xs, "dual_samples" = ys, "time" = t2, "all_x" = all_x, "outer_loop_indices" = outer_loop_index))
+}
+
+##
+## Integrated function
+## All arguments other than ... are necessary for DMLA to run
+## If Fn is provided, then we require the first argument of Fn to be the current x
+## If grad is provided, we require the function to have the current position x and lam as arguments
+## The user must provide one of Fn and grad.
+##
+DMLA = function(Fn = NULL, grad = NULL, x0, K, eta0, rho, lam, multiplier, A, b, scale, message = F, ...){
+  args <- list(x0, K, eta0, rho, lam, multiplier, A, b, scale, message, ...)
+  names(args)[1:10] = c("x0","K", "eta0", "rho", "lam", "multiplier", "A", "b", "scale", "message")
+  if (!is.null(Fn)) {
+    args$Fn = Fn
+    if(!"grad_method" %in% names(args) | ! "s0" %in% names(args)){
+      print(names(args))
+      stop("Missing grad_method or s0")
+    }
+    if(!is.null(grad)){
+      stop("No need to provide both Fn and grad")
+    }
+    return(do.call(DMLA_new, args))
+  }else if (!is.null(grad)) {
+    args$grad = grad
+    if(! "x" %in% names(formals(grad)) | ! "lam" %in% names(formals(grad))){
+      stop("The gradient function must have two arguments: x and lam")
+    }
+    return(do.call(DMLA_new_grad, args))
+  }else{
+    stop("Must provide either Fn or grad")
+  }
+}
+```
+
+# DMLA data
+```{r}
+source("mla_pgm.R")
+n = 500  ## number of samples
+lam = 1
+
+d1 = 2
+d = d1*(d1+1)/2
+theta0 = matrix(0, d1, d1)  ## True theta0
+theta0[lower.tri(theta0)] = -0.1
+theta0[upper.tri(theta0)] = theta0[lower.tri(theta0)]
+diag(theta0) = c(1,1)
+X0 = PGMsim(n,theta0, max_iter =  10000)
+
+d1 = 3
+d = d1*(d1+1)/2
+theta1 = matrix(0, d1, d1)  ## True theta0
+theta1[lower.tri(theta1)] = c(-0.1, -0.1, -0.1)
+theta1[upper.tri(theta1)] = theta1[lower.tri(theta1)]
+diag(theta1) = c(1,1,1)
+X1 = PGMsim(n,theta1, max_iter =  10000)
+
+d1 = 6
+d = d1*(d1+1)/2
+theta2 = matrix(0, d1, d1)  ## True theta0
+theta2[lower.tri(theta2)] = rep(-0.1, 15)
+theta2[upper.tri(theta2)] = theta2[lower.tri(theta2)]
+diag(theta2) = rep(1, 6)
+X2  = PGMsim(n,theta2, max_iter =  10000)
+
+rm(d,d1,n,lam)
+```
+
+# The function that directly estimates the gradient
+```{r}
+not_diag = function(dX){
+  if(dX == 1){return(0)}
+  else{
+    v = numeric(0)
+    for(i in (dX-1):0){
+     temp = c(0, rep(1,i))
+     v = c(v,temp)
+    }
+    return(v)
+  }
+}
+
+Hess_outer = function(x,dX,lam){
+  d = dX*(dX+1)/2
+  z = numeric(d)
+  non_diag = not_diag(dX)
+  for(i in 1:d){
+    if(non_diag[i]){
+      z[i] = 1/x[i]^2
+    }
+  }
+  return(lam + z)
+}
+
+logz_gradient_estimate = function(n, theta, max_iter, B){
+  d = nrow(theta)
+  grad = numeric(d*(d+1)/2)
+  X = PGMsim(n, theta, max_iter)
+  count = 1
+  for(i in 1:d){
+    for(j in i:d){
+      if(i == j){
+        grad[count] = mean(X[B:n,i])
+      }else{
+        grad[count] = 2*mean(X[B:n,i]*X[B:n,j])
+      }
+      count = count + 1
+    }
+  }
+  return(grad)
+}
+
+# Accurate estimate of the gradient
+grad_est_acc = function(x, lam, n, S, dX, N_samp, prior = 10, max_iter = 500){
+  curr_theta = invvech(x)
+
+  # Estimate gradient directly
+  est = -vech(S)*ifelse(not_diag(dX), 2, 1) + x/(prior^2)
+  grad_z = n*logz_gradient_estimate(n = N_samp, theta = curr_theta, max_iter, B = N_samp/2)
+  est = est + grad_z
+  
+  return(est)
+}
+```
+
+
+```{r }
+# Zeroth order oracle method
+# Fn must also take grad_method and s0
+res1 = DMLA(Fn = biased_log_posterior, x0 = c(2,-0.2,3), K = 10, eta0 = 0.1, rho = 0.99, lam = 1, grad_method = "forward", s0 = 0.5, multiplier = 1, A = diag(not_diag(2)), b = c(1-not_diag(2)), scale = nrow(X0), message = T, X = X0, N = 10000)
+
+res2 = DMLA(Fn = biased_log_posterior, x0 = c(1,-0.2,-0.1, 1, -0.2, 1), K = 50, eta0 = 0.1, rho = 0.99, lam = 1, grad_method = "forward", s0 = 0.4, multiplier = 1, A = diag(not_diag(3)), b = c(1-not_diag(3)), scale = nrow(X1), message = T, X = X1, N = 5000)
+
+## Try to also use the gradient
+## grad must contain x and lam
+S = t(X1)%*%X1
+diag(S) = apply(X1, 2, sum)
+res3 = DMLA(grad = grad_est_acc, x0 = c(1,-0.1,-0.2, 3, -0.3, 1), K = 100, eta0 = 0.2, rho = 0.99, lam = 5, multiplier = 100, A = diag(not_diag(3)), b = c(1-not_diag(3)), scale = nrow(X0), message = "T", dX = 3, n = nrow(X0), S = S, N_samp = 500)
+
+S = t(X2)%*%X2
+diag(S) = apply(X2, 2, sum)
+res4 = DMLA(grad = grad_est_acc, x0 = c(1, rep(-0.2,5), 1, rep(-0.2,4), 2, rep(-0.1,3), 1, rep(-0.1,2), 1, -0.15, 1), K = 20, eta0 = 0.3, rho = 0.99, lam = 1, multiplier = 5, A = diag(not_diag(6)), b = c(1-not_diag(6)), scale = nrow(X2), dX = 6, n = nrow(X2), S = S, N_samp = 1000)
+```
+
+
+# Try different etas, multipliers, and different s0's. 
+```{r}
+etas = c(0.1, 0.05, 0.02)
+multipliers = c(1,10)
+s0s = c(1,0.5,0.2,0.1,0.05)
+B = 100
+
+etas = c(0.1)
+multipliers = c(10)
+s0s = c(1,0.5,0.2,0.1,0.05)
+B = 100
+
+
+for(i in 1:length(etas)){
+  for(j in 1:length(multipliers)){
+    for(k in 1:length(s0s)){
+      res = DMLA(Fn = biased_log_posterior, x0 = c(2,-0.2,3), K = B, eta0 = etas[i], rho = 0.99, lam = 1, grad_method = "forward", s0 = s0s[k], multiplier = multipliers[j], A = diag(not_diag(2)), b = c(1-not_diag(2)), scale = nrow(X0), message = T, X = X0, N = 5000)
+      file = paste("e",etas[i],"m",multipliers[j],"s",s0s[k],".png", sep = "")
+      png(filename = file)
+      par(mfrow = c(2,3))
+      plot(res$primal_samples[1, (B/2):B], type = "l",
+           main = file, xlab = paste("time = ", res$time),
+           ylim = c(0.2))
+      abline(h = 1)
+      plot(res$primal_samples[2, (B/2):B], type = "l",
+           ylim = c(-0.2,0.2))
+      abline(h = -0.1)
+      plot(res$primal_samples[3, (B/2):B], type = "l",
+           ylim = c(0.2))
+      abline(h = 1)
+      acf(res$primal_samples[1, (B/2):B])
+      acf(res$primal_samples[2, (B/2):B])
+      acf(res$primal_samples[3, (B/2):B])
+      dev.off()
+    }
+  }
+}
+```
+
+
+# RCPP implementation
+# It repeatedly calls functions in R, so the speed is not much faster.
+```{r}
+#install.packages("RcppArmadillo")
+library(Rcpp)
+library(RcppArmadillo)
+Rcpp::sourceCpp("DMLA_combine.cpp")
+
+A = diag(not_diag(2))
+b = c(1-not_diag(2))
+
+DMLA_new_cpp <- function(
+    Fn,
+    x0,
+    K,
+    eta0,
+    rho,
+    lam,
+    grad_method,
+    s0,
+    multiplier,
+    A,
+    b,
+    scale = 1,
+    message = FALSE,
+    MH = F,
+    ...
+) {
+    d <- length(x0)
+
+    non_diag <- not_diag(floor(sqrt(2 * d)))
+
+    DMLA_new_cpp_impl(
+        Fn = Fn,
+        x0 = x0,
+        K = K,
+        eta0 = eta0,
+        rho = rho,
+        lam = lam,
+        grad_method = grad_method,
+        s0 = s0,
+        multiplier = multiplier,
+        A = A,
+        b = b,
+        scale = scale,
+        message = message,
+        non_diag_r = non_diag,
+        MH = MH,
+        dots = list(...)
+    )
+}
+
+theta0 = vech(pseudo_likelihood(X1, penalty = "none", lambda = 1))
+
+res = DMLA_new_cpp(Fn = biased_log_posterior_cpp, x0 = theta0, K = 200, eta0 = 0.2, rho = 0.99, lam = 4, grad_method = "forward", s0 = 0.2, multiplier = 1000, A = diag(not_diag(3)), b = c(1-not_diag(3)), scale = 50*nrow(X1), message = T, X = X1, N = 5000, p0 = 0.7)
+
+res2 = DMLA_new_cpp(Fn = biased_log_posterior_cpp, x0 = c(2,-0.2,-0.2,2,-0.1,1), K = 10000, eta0 = 0.2, rho = 0.99, lam = 4, grad_method = "forward", s0 = 0.2, multiplier = 100, A = diag(not_diag(3)), b = c(1-not_diag(3)), scale = nrow(X1), message = F, MH = T, X = X1, N = 5000, p0 = 0.7)
+
+
+res$time
+res$acceptance
+plot(res$primal_samples[4,], type = "l")
+plot(res2$primal_samples[5,], type = "l")
+res$log_acceptance_ratio
+
+saveRDS(object = X1, file = "X1.RDS")
+saveRDS(object = theta0, file = "theta0.RDS")
+saveRDS(object = res$primal_samples, file = "primal.RDS")
+saveRDS(object = res$all_x, file = "allx.RDS")
+saveRDS(object = res$time, file = "time.RDS")
+saveRDS(object = res$outer_loop_indices, file = "outer.RDS")
+
+# write.csv(res$all_x, file = "all_x.csv")
+res$time
+
+readRDS("outer.RDS")
+readRDS("time.RDS")/3600
+
+plot(res$all_x[4,])
+```
+
+
+# Obtain a good plot
+```{r}
+#theta0 = vech(pseudo_likelihood(X1, penalty = "none", lambda = 1))
+#res =  DMLA(Fn = biased_log_posterior, x0 = theta0, K = 100, eta0 = 0.1, rho = 0.99, lam = 1, grad_method = "forward", s0 = 0.2, multiplier = 1, A = diag(not_diag(3)), b = c(1-not_diag(3)), scale = nrow(X1), message = T, X = X1, N = 5000)
+
+
+library(ggplot2)
+#install.packages("latex2exp")
+library(latex2exp)
+font_size = 16
+My_Theme = theme(axis.title.x = element_text(size = font_size),axis.text.x = element_text(size = font_size),
+                 axis.title.y = element_text(angle = 90, size = font_size), axis.text.y = element_text(angle = 90, size = font_size), 
+                 legend.text = element_text(size = font_size), legend.title = element_text(size = font_size), plot.title = element_text(size = font_size))
+
+
+
+it = ncol(res$all_x)
+df = data.frame(t(res$all_x))
+df$iteration = 1:it
+
+y_limits <- range(df$X6, na.rm = TRUE)
+tick_length <- 0.015 * diff(y_limits)
+tick_df <- data.frame(
+  x = res$outer_loop_indices,
+  y = y_limits[1],
+  yend = y_limits[1] + tick_length
+)
+
+p <- ggplot(df, aes(x = iteration, y = X6)) +
+  geom_line() + 
+  geom_hline(yintercept = 1, color = "blue")+
+  labs(
+    x = "Iterations",
+    y = TeX(r'($\theta_{33}$)'),
+    title = TeX(paste0("Trace plot of $\\theta_{", 33, "}$"))
+  ) +
+  geom_segment(
+    data = tick_df,
+    aes(x = x, xend = x, y = y, yend = yend),
+    inherit.aes = FALSE,
+    color = "red",
+    linewidth = 0.4
+  )+
+  geom_point(data = df[res$outer_loop_indices,],
+             col = "red")+
+  My_Theme
+
+  
+ggsave(filename = "traceplot_theta33.png",
+       plot = p, width = 6, height = 4)
+```
+
+
+# Gradient method and Cpp
+```{r}
+DMLA_new_grad_cpp <- function(
+    grad,
+    x0,
+    K,
+    eta0,
+    rho,
+    lam,
+    multiplier,
+    A,
+    b,
+    scale = 1,
+    message = FALSE,
+    ...
+) {
+    d <- length(x0)
+
+    non_diag <- not_diag(floor(sqrt(2 * d)))
+    
+    DMLA_new_grad_cpp_impl(
+        grad = grad,
+        x0 = x0,
+        K = K,
+        eta0 = eta0,
+        rho = rho,
+        lam = lam,
+        multiplier = multiplier,
+        A = A,
+        b = b,
+        scale = scale,
+        message = message,
+        non_diag_r = non_diag,
+        dots = list(...)
+    )
+}
+
+
+vech(pseudo_likelihood(X1, penalty = "none", lambda = 1))
+
+S = t(X1)%*%X1 
+diag(S) = apply(X1, 2, sum)
+res_grad = DMLA_new_grad_cpp(grad = grad_est_acc_cpp, x0 = c(1,-0.1,-0.2, 3, -0.3, 1), K = 200, eta0 = 0.2, rho = 0.99, lam = 1, multiplier = 100, A = diag(not_diag(3)), b = c(1-not_diag(3)), scale = nrow(X0), message = T, dX = 3, n = nrow(X0), S = S, N_samp = 200)
+
+grad_est_acc_cpp(c(1,-0.1,-0.2, 3, -0.3, 1), lam = 5, n = 2000, S = S, dX = 3, N_samp = 10000)
+grad_est_acc_cpp(x = c(2,-0.1,-0.1, 1, -0.1, 1), lam = 5, n = 2000, S = S, dX = 3, N_samp = 10000)
+grad_est_acc_cpp(x = c(1.81477, -0.0718551, -0.00719226, 0.70131, -0.0604722, 0.0263026), lam = 5, n = 2000, S = S, dX = 3, N_samp = 10000)
+
+```
+
+
+
+## New graphs
+```{r}
+#theta0 = vech(pseudo_likelihood(X1, penalty = "none", lambda = 1))
+#res =  DMLA(Fn = biased_log_posterior, x0 = theta0, K = 100, eta0 = 0.1, rho = 0.99, lam = 1, grad_method = "forward", s0 = 0.2, multiplier = 1, A = diag(not_diag(3)), b = c(1-not_diag(3)), scale = nrow(X1), message = T, X = X1, N = 5000)
+
+library(ggplot2)
+#install.packages("latex2exp")
+library(latex2exp)
+font_size = 16
+My_Theme = theme(axis.title.x = element_text(size = font_size),axis.text.x = element_text(size = font_size),
+                 axis.title.y = element_text(angle = 90, size = font_size), axis.text.y = element_text(angle = 90, size = font_size), 
+                 legend.text = element_text(size = font_size), legend.title = element_text(size = font_size), plot.title = element_text(size = font_size))
+
+
+
+it = ncol(res$all_x)
+df = data.frame(t(res$all_x))
+df$iteration = 1:it
+
+y_limits <- range(df$X5, na.rm = TRUE)
+tick_length <- 0.015 * diff(y_limits)
+tick_df <- data.frame(
+  x = res$outer_loop_indices,
+  y = y_limits[1],
+  yend = y_limits[1] + tick_length
+)
+
+p <- ggplot(df, aes(x = iteration, y = X5)) +
+  geom_line() + 
+  geom_hline(yintercept = -0.1, color = "blue")+
+  labs(
+    x = "Iterations",
+    y = TeX(r'($\theta_{23}$)'),
+    title = TeX(paste0("Trace plot of $\\theta_{", 23, "}$"))
+  ) +
+  geom_segment(
+    data = tick_df,
+    aes(x = x, xend = x, y = y, yend = yend),
+    inherit.aes = FALSE,
+    color = "red",
+    linewidth = 0.4
+  )+
+  geom_point(data = df[res$outer_loop_indices,],
+             col = "red")+
+  My_Theme
+
+  
+ggsave(filename = "zeroth_order_traceplot_theta23.png",
+       plot = p, width = 6, height = 4)
+```
+
+
+```{r}
+DMLA_MH <- function(
+    Fn,
+    x0,
+    X,
+    K,
+    eta0,
+    lam,
+    grad_method,
+    s0,
+    multiplier,
+    A,
+    b,
+    scale = 1,
+    message = FALSE,
+    ...
+) {
+    d <- length(x0)
+
+    non_diag <- not_diag(floor(sqrt(2 * d)))
+
+    DMLA_PGG_MH_order0(
+        Fn = Fn,
+        x0 = x0,
+        X = X,
+        K = K,
+        eta0 = eta0,
+        lam = lam,
+        grad_method = grad_method,
+        s0 = s0,
+        multiplier = multiplier,
+        A = A,
+        b = b,
+        scale = scale,
+        message = message,
+        non_diag_r = non_diag,
+        dots = list(...)
+    )
+}
+
+res_MH = DMLA_MH(Fn = biased_log_posterior_cpp, x0 = c(2,-0.2,-0.2,2,-0.1,1), K = 200000, eta0 = 0.2, lam = 4, grad_method = "forward", s0 = 0.2, multiplier = 100, A = diag(not_diag(3)), b = c(1-not_diag(3)), scale = 5000*nrow(X1), message = T, X = X1, N = 5000, p0 = 0.7)
+
+res_MH$log_acceptance_ratio
+
+res_MH$primal_samples[2,]
+
+log_E(c(1,-0.2,-0.2,2,-0.1,1), X = X1) 
+log_E(c(2,-0.2,-0.2,2,-0.1,1), X = PGMsim_cpp(n=5000, theta = c(1,-0.2,-0.2,2,-0.1,1), 100))
+
+```
+
+
+
+# Test the function with log likelihood
+```{r}
+library(Rcpp)
+library(RcppArmadillo)
+Rcpp::sourceCpp("DMLA_combine.cpp")
+DMLA_new_grad_cpp_lglik <- function(
+    grad,
+    x0,
+    X,
+    K,
+    eta0,
+    rho,
+    lam,
+    multiplier,
+    A,
+    b,
+    scale = 1,
+    message = FALSE,
+    ...
+) {
+    d <- length(x0)
+
+    non_diag <- not_diag(floor(sqrt(2 * d)))
+    
+    DMLA_new_grad_cpp_impl_lglik(
+        grad = grad,
+        x0 = x0,
+        X = X,
+        K = K,
+        eta0 = eta0,
+        rho = rho,
+        lam = lam,
+        multiplier = multiplier,
+        A = A,
+        b = b,
+        scale = scale,
+        message = message,
+        non_diag_r = non_diag,
+        dots = list(...)
+    )
+}
+
+S = t(X1)%*%X1
+diag(S) = apply(X1, 2, sum)
+
+res_1st = DMLA_new_grad_cpp_lglik(grad = grad_est_acc_cpp, x0 = c(2,-0.2,-0.2, 1, -0.1, 1), X = X1, K = 200, eta0 = 0.2, rho = 0.99, lam = 1, multiplier = 50, A = diag(not_diag(3)), b = c(1-not_diag(3)), scale = nrow(X1), message = T, dX = 3, n = nrow(X1), S = S, N_samp = 500)
+
+saveRDS(object = X1, file = "X1.RDS")
+saveRDS(object = theta0, file = "theta0.RDS")
+saveRDS(object = res_1st$primal_samples, file = "primal_1stOrder.RDS")
+saveRDS(object = res_1st$all_x, file = "allx_1stOrder.RDS")
+saveRDS(object = res_1st$time, file = "time_1stOrder.RDS")
+saveRDS(object = res_1st$outer_loop_indices, file = "outer_1stOrder.RDS")
+saveRDS(object = res_1st$all_log_liklihood, file = "all_log_liklihood_1stOrder.RDS")
+saveRDS(object = res_1st$primal_sample_log_likelihood, file = "primal_lglik_1stOrder.RDS")
+```
+
+```{r}
+DMLA_new_cpp_lglik <- function(
+    Fn,
+    x0,
+    dat,
+    K,
+    eta0,
+    rho,
+    lam,
+    grad_method,
+    s0,
+    multiplier,
+    A,
+    b,
+    scale = 1,
+    message = FALSE,
+    MH = F,
+    ...
+) {
+    d <- length(x0)
+
+    non_diag <- not_diag(floor(sqrt(2 * d)))
+
+    DMLA_new_cpp_impl_lglik(
+        Fn = Fn,
+        x0 = x0,
+        dat = dat,
+        K = K,
+        eta0 = eta0,
+        rho = rho,
+        lam = lam,
+        grad_method = grad_method,
+        s0 = s0,
+        multiplier = multiplier,
+        A = A,
+        b = b,
+        scale = scale,
+        message = message,
+        non_diag_r = non_diag,
+        MH = MH,
+        dots = list(...)
+    )
+}
+
+res_0th = DMLA_new_cpp_lglik(Fn = unbiased_log_posterior_cpp, x0 = c(2,-0.2,-0.2, 1, -0.1, 1), dat = X1, K = 200, eta0 = 0.2, rho = 0.99, lam = 1, grad_method = "forward", s0 = 0.2, multiplier = 500, A = diag(not_diag(3)), b = c(1-not_diag(3)), scale = 50*nrow(X1), message = T, X = X1, N = 5000, p0 = 0.7)
+
+saveRDS(object = res_0th$primal_samples, file = "primal_0thOrder.RDS")
+saveRDS(object = res_0th$all_x, file = "allx_0thOrder.RDS")
+saveRDS(object = res_0th$time, file = "time_0thOrder.RDS")
+saveRDS(object = res_0th$outer_loop_indices, file = "outer_0thOrder.RDS")
+saveRDS(object = res_0th$all_log_liklihood, file = "all_log_liklihood_0thOrder.RDS")
+saveRDS(object = res_0th$primal_sample_log_likelihood, file = "primal_lglik_0thOrder.RDS")
+
+
+res_0th_b = DMLA_new_cpp_lglik(Fn = biased_log_posterior_cpp, x0 = c(2,-0.2,-0.2, 1, -0.1, 1), dat = X1, K = 100, eta0 = 0.2, rho = 0.99, lam = 1, grad_method = "forward", s0 = 0.15, multiplier = 100, A = diag(not_diag(3)), b = c(1-not_diag(3)), scale = 50*nrow(X1), message = T, X = X1, N = 5000, p0 = 0.7)
+
+saveRDS(object = res_0th$primal_samples, file = "primal_0thOrder_b.RDS")
+saveRDS(object = res_0th$all_x, file = "allx_0thOrder_b.RDS")
+saveRDS(object = res_0th$time, file = "time_0thOrder_b.RDS")
+saveRDS(object = res_0th$outer_loop_indices, file = "outer_0thOrder_b.RDS")
+saveRDS(object = res_0th$all_log_liklihood, file = "all_log_liklihood_0thOrder_b.RDS")
+saveRDS(object = res_0th$primal_sample_log_likelihood, file = "primal_lglik_0thOrder_b.RDS")
+```
+
+## First order plot
+```{r}
+library(ggplot2)
+#install.packages("latex2exp")
+library(latex2exp)
+font_size = 16
+My_Theme = theme(axis.title.x = element_text(size = font_size),axis.text.x = element_text(size = font_size),
+                 axis.title.y = element_text(angle = 90, size = font_size), axis.text.y = element_text(angle = 90, size = font_size), 
+                 legend.text = element_text(size = font_size), legend.title = element_text(size = font_size), plot.title = element_text(size = font_size))
+
+
+res = res_1st
+it = ncol(res$all_x)
+df = data.frame(t(res$all_x))
+df$iteration = 1:it
+
+intercepts = c(1, - 0.1, -0.1, 1, -0.1, 1)
+indices = c(11, 12, 13, 22, 23, 33)
+trace_columns <- paste0("X", 1:6)
+
+for (i in 1:6){
+  y_limits <- range(df[trace_columns[i]], na.rm = TRUE)
+  tick_length <- 0.015 * diff(y_limits)
+  tick_df <- data.frame(
+    x = res$outer_loop_indices,
+    y = y_limits[1],
+    yend = y_limits[1] + tick_length
+  )
+
+  p <- ggplot(df, aes(x = iteration, y = .data[[trace_columns[i]]])) +
+    geom_line() + 
+    geom_hline(yintercept = intercepts[i], color = "blue")+
+    labs(
+      x = "Iterations",
+      y = TeX(paste0("$\\theta_{", indices[i], "}$")),
+      title = TeX(paste0("Trace plot of $\\theta_{", indices[i], "}$"))
+    ) +
+    geom_segment(
+      data = tick_df,
+      aes(x = x, xend = x, y = y, yend = yend),
+      inherit.aes = FALSE,
+      color = "red",
+      linewidth = 0.4
+    )+
+    geom_point(data = df[res$outer_loop_indices,],
+               col = "red", size = 0.3)+
+    My_Theme
+
+  
+  ggsave(filename = paste("first_order_traceplot_theta", indices[i], ".png", sep = ""),
+       plot = p, width = 6, height = 4)
+}
+
+
+it = ncol(res$all_log_liklihood)
+df2 = data.frame(t(res$all_log_liklihood))
+names(df2) = "X1"
+df2$iteration = 1:it
+
+y_limits <- range(df2$X1, na.rm = TRUE)
+tick_length <- 0.015 * diff(y_limits)
+tick_df <- data.frame(
+  x = res$outer_loop_indices,
+  y = y_limits[1],
+  yend = y_limits[1] + tick_length
+)
+
+
+p2 <- ggplot(df2, aes(x = iteration, y = X1)) +
+    geom_line() + 
+    labs(
+      x = "Iterations",
+      y = "Log likelihood",
+      title = "Log likelihood vs Iterations up to a constant"
+    ) +
+    geom_segment(
+      data = tick_df,
+      aes(x = x, xend = x, y = y, yend = yend),
+      inherit.aes = FALSE,
+      color = "red",
+      linewidth = 0.4
+    )+
+    geom_point(data = df2[res$outer_loop_indices,],
+               col = "red", size = 0.3)+
+    My_Theme
+
+  ggsave(filename = "first_order_traceplot_lglik.png",
+       plot = p2, width = 6, height = 4)
+
+```
+
+
+# zeroth order unbiased plot
+```{r}
+res = res_0th
+it = ncol(res$all_x)
+df = data.frame(t(res$all_x))
+df$iteration = 1:it
+
+intercepts = c(1, - 0.1, -0.1, 1, -0.1, 1)
+indices = c(11, 12, 13, 22, 23, 33)
+trace_columns <- paste0("X", 1:6)
+
+for (i in 1:6){
+  y_limits <- range(df[trace_columns[i]], na.rm = TRUE)
+  tick_length <- 0.015 * diff(y_limits)
+  tick_df <- data.frame(
+    x = res$outer_loop_indices,
+    y = y_limits[1],
+    yend = y_limits[1] + tick_length
+  )
+
+  p <- ggplot(df, aes(x = iteration, y = .data[[trace_columns[i]]])) +
+    geom_line() + 
+    geom_hline(yintercept = intercepts[i], color = "blue")+
+    labs(
+      x = "Iterations",
+      y = TeX(paste0("$\\theta_{", indices[i], "}$")),
+      title = TeX(paste0("Trace plot of $\\theta_{", indices[i], "}$"))
+    ) +
+    geom_segment(
+      data = tick_df,
+      aes(x = x, xend = x, y = y, yend = yend),
+      inherit.aes = FALSE,
+      color = "red",
+      linewidth = 0.4
+    )+
+    geom_point(data = df[res$outer_loop_indices,],
+               col = "red", size = 0.3)+
+    My_Theme
+
+  
+  ggsave(filename = paste("zeroth_order_unbiased_traceplot_theta", indices[i], ".png", sep = ""),
+       plot = p, width = 6, height = 4)
+}
+
+
+it = ncol(res$all_log_liklihood)
+df2 = data.frame(t(res$all_log_liklihood))
+names(df2) = "X1"
+df2$iteration = 1:it
+
+y_limits <- range(df2$X1, na.rm = TRUE)
+tick_length <- 0.015 * diff(y_limits)
+tick_df <- data.frame(
+  x = res$outer_loop_indices,
+  y = y_limits[1],
+  yend = y_limits[1] + tick_length
+)
+
+
+p2 <- ggplot(df2, aes(x = iteration, y = X1)) +
+    geom_line() + 
+    labs(
+      x = "Iterations",
+      y = "Log likelihood",
+      title = "Log likelihood vs Iterations up to a constant"
+    ) +
+    geom_segment(
+      data = tick_df,
+      aes(x = x, xend = x, y = y, yend = yend),
+      inherit.aes = FALSE,
+      color = "red",
+      linewidth = 0.4
+    )+
+    geom_point(data = df2[res$outer_loop_indices,],
+               col = "red", size = 0.3)+
+    My_Theme
+
+  ggsave(filename = "first_order_traceplot_lglik.png",
+       plot = p2, width = 6, height = 4)
+```
+
+
+
+```{r}
+DMLA_MH_order1 <- function(
+    grad,
+    x0,
+    X,
+    K,
+    eta0,
+    lam,
+    A,
+    b,
+    scale = 1,
+    message = FALSE,
+    ...
+) {
+    d <- length(x0)
+
+    non_diag <- not_diag(floor(sqrt(2 * d)))
+
+    DMLA_PGG_MH_order1(
+        grad = grad,
+        x0 = x0,
+        X = X,
+        K = K,
+        eta0 = eta0,
+        lam = lam,
+        A = A,
+        b = b,
+        scale = scale,
+        message = message,
+        non_diag_r = non_diag,
+        dots = list(...)
+    )
+}
+
+X1 = readRDS(file = "X1.RDS")
+S = t(X1)%*%X1
+diag(S) = apply(X1, 2, sum)
+
+res_1st_MH = DMLA_MH_order1(grad = grad_est_acc_cpp, x0 = c(2,-0.2,-0.2, 1, -0.1, 1), X = X1, K = 3*15000, eta0 = 0.2, lam = 1, A = diag(not_diag(3)), b = c(1-not_diag(3)), scale = 3*nrow(X1), message = T, dX = 3, n = nrow(X1), S = S, N_samp = 500)
+
+saveRDS(object = res_1st_MH$primal_samples, file = "primal_1stOrder_MH.RDS")
+saveRDS(object = res_1st_MH$time, file = "time_1stOrder_MH.RDS")
+saveRDS(object = res_1st_MH$log_acceptance_ratio, file = "log_acceptance_ratio_1stOrder_MH.RDS")
+saveRDS(object = res_1st_MH$log_likelihood, file = "all_log_liklihood_1stOrder_MH.RDS")
+saveRDS(object = res_1st_MH$acceptance, file = "acceptance_1stOrder_MH.RDS")
+
+mean(res_1st_MH$acceptance)
+```
+
+```{r}
+font_size = 16
+My_Theme = theme(axis.title.x = element_text(size = font_size),axis.text.x = element_text(size = font_size),
+                 axis.title.y = element_text(angle = 90, size = font_size), axis.text.y = element_text(angle = 90, size = font_size), 
+                 legend.text = element_text(size = font_size), legend.title = element_text(size = font_size), plot.title = element_text(size = font_size))
+
+
+res = res_1st_MH
+it = ncol(res$primal_samples)
+df = data.frame(t(res$primal_samples))
+df$iteration = 1:it
+
+intercepts = c(1, - 0.1, -0.1, 1, -0.1, 1)
+indices = c(11, 12, 13, 22, 23, 33)
+trace_columns <- paste0("X", 1:6)
+
+for (i in 1:6){
+  y_limits <- range(df[trace_columns[i]], na.rm = TRUE)
+
+  p <- ggplot(df, aes(x = iteration, y = .data[[trace_columns[i]]])) +
+    geom_line() + 
+    geom_hline(yintercept = intercepts[i], color = "blue")+
+    labs(
+      x = "Iterations",
+      y = TeX(paste0("$\\theta_{", indices[i], "}$")),
+      title = TeX(paste0("Trace plot of $\\theta_{", indices[i], "}$"))
+    ) +
+    My_Theme
+
+  
+  ggsave(filename = paste("first_order_MH_traceplot_theta", indices[i], ".png", sep = ""),
+       plot = p, width = 6, height = 4)
+}
+
+res_1st = list(all_log_liklihood = readRDS("all_log_liklihood_1stOrder.RDS"),
+               outer_loop_indices = readRDS("outer_1stOrder.RDS"))
+res = res_1st
+it = 100
+df2 = data.frame(t(res$all_log_liklihood)[1:it,])
+names(df2) = "X1"
+df2$iteration = 1:it
+
+y_limits <- range(df2$X1, na.rm = TRUE)
+tick_length <- 0.015 * diff(y_limits)
+tick_df <- data.frame(
+  x = res$outer_loop_indices[res$outer_loop_indices <= it],
+  y = y_limits[1],
+  yend = y_limits[1] + tick_length
+)
+
+df3 = data.frame(lglik = t(res_1st_MH$log_likelihood)[1:it,], iteration = (1:it))
+
+p2 <- ggplot(df2, aes(x = iteration, y = X1, color = "outer")) +
+    geom_line(alpha = 0.7) + 
+    labs(
+      x = "Iterations",
+      y = "Log likelihood",
+      title = "Log likelihood vs Iterations up to a constant"
+    ) + 
+    geom_segment(
+      data = tick_df,
+      aes(x = x, xend = x, y = y, yend = yend),
+      inherit.aes = FALSE,
+      color = "red",
+      linewidth = 1
+    )+
+    geom_point(data = df2[tick_df$x,],
+               col = "red", size = 0.3)+
+    geom_line(
+      data = df3,
+      aes(x = iteration, y = lglik, color = "mh"),
+      alpha = 0.7 
+    )+
+    My_Theme+
+    theme(legend.position = "bottom")+  
+    scale_color_manual(
+      name = "Algorithm",
+      breaks = c("mh", "outer"),
+      labels = c(
+        "First_order method with MH",
+        "First-order method"
+      ),
+      values = c(
+        "mh" = "blue",
+        "outer" = "black"
+      )
+    ) 
+
+  ggsave(filename = "first_order_traceplot_lglik.png",
+       plot = p2, width = 6, height = 4)
+```
+
+
+```{r}
+
+df <- data.frame(
+  iteration = 1:100,
+  method1 = cumsum(rnorm(100)),
+  method2 = cumsum(rnorm(100))
+)
+
+p <- ggplot(df, aes(x = iteration)) +
+  geom_line(
+    aes(y = method1, color = "Method 1"),
+    linewidth = 0.8
+  ) +
+  geom_line(
+    aes(y = method2, color = "Method 2"),
+    linewidth = 0.8
+  ) +
+  scale_color_manual(
+    name = "Algorithm",
+    values = c(
+      "Method 1" = "blue",
+      "Method 2" = "red"
+    ),
+    labels = c(
+      "Method 1" = "Metropolis–Hastings",
+      "Method 2" = "First-order method"
+    )
+  ) +
+  labs(
+    title = "Trace plots",
+    x = "Iteration",
+    y = "Log likelihood"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    legend.title = element_text(size = 12),
+    legend.text = element_text(size = 11)
+  )
+
+print(p)
+```
+
+
