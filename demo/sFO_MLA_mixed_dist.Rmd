@@ -1,0 +1,65 @@
+---
+title: "091626"
+author: "Ruiting Tong"
+date: "2026-09-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Prepare data
+```{r}
+n = 10000
+d = 3
+alpha = rep(2,d)
+theta = rep(0.8/d, d-1)
+classes = sample(1:d, size = n, prob = c(theta, 1-sum(theta)), replace = T)
+
+## p_i's are normal distributions with mean i and std 1.
+x = rnorm(n, mean = 0, sd = 0.2)
+x = x + classes
+```
+
+### Source our function
+```{r}
+source(file = "../sMLA.R")
+```
+
+### Compute the gradient with R functions. 
+```{r}
+evaluate_normal_density = function(s, std, l){
+  dens = numeric(l)
+  for(k in 1:l){
+    dens[k] = dnorm(s,mean = k,sd = std)
+  }
+  return(dens)
+}
+
+grad_est = function(m,x,dat,alpha,std){
+  x = c(x, 1 - sum(x))
+  K = length(x)
+  n = length(dat)
+  grad = numeric(K-1)
+  indices = sample(1:n, size = m)
+  for(j in 1:(K-1)){
+    for(i in indices){
+      dens = evaluate_normal_density(dat[i], std, l = K)
+      temp = x*dens
+      grad[j] = grad[j] - (dnorm(dat[i],mean = j, sd = std) - dnorm(dat[i],mean = K, sd = std))/sum(temp) 
+    }
+  }
+  grad = grad*n/m - (alpha[-K] - 1)*1/x[-K] + (alpha[K] - 1)/x[K]
+  return(grad)
+}
+```
+
+### sFO-MLA for the mixture model
+```{r}
+A = rbind(-diag(d-1), rep(1,d-1))
+b = c(rep(0,d-1), 1)
+
+sMLA(grad = grad_est, x0 = rep(1/d, d-1), K = 10, eta0 = 1, rho = 0.99, lam = 1, multiplier = 50, A = A, b = b, scale = n, message = T, dat = x, m = 2500, alpha = rep(2,d), std = 0.2)
+```
+

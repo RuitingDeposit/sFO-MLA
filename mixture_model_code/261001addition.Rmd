@@ -12,7 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ### Test mini-batch
 ```{r}
 library(Rcpp)
-sourceCpp(file = "DMLA_combine_mixture_model.cpp")
+sourceCpp(file = "sFO_MLA_mixture_model.cpp")
 
 etas = c(50,70,80)
 dims = c(50,80,100)
