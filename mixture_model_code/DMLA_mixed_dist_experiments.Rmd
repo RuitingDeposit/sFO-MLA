@@ -1,0 +1,360 @@
+---
+title: "091626"
+author: "Ruiting Tong"
+date: "2026-09-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+# Prepare data
+n = 10000
+d = 30
+alpha = rep(2,d)
+theta = c(rep(0.5/d, 4), rep(1/d, d - 8), rep(1.5/d, 3))
+classes = sample(1:d, size = n, prob = c(theta, 1-sum(theta)), replace = T)
+
+## p_i's are normal distributions with mean i and std 1.
+x = rnorm(n, mean = 0, sd = 0.2)
+x = x + classes
+```
+
+# With Rcpp
+```{r}
+library(Rcpp)
+sourceCpp(file = "DMLA_combine_mixture_model.cpp")
+
+A = rbind(-diag(d-1), rep(1,d-1))
+b = c(rep(0,d-1), 1)
+
+# saveRDS(x, file = "experiments/d30/data.RDS")
+x = readRDS(file = "experiments/d30/data.RDS" )
+result = DMLA_new_grad_cpp_mix_lglik(theta0 = rep(1/d,d-1), x = x, alpha = alpha, B = 150, eta0 = 40, rho = 0.99, lam = 1, multiplier = 2500, A = A, b = b, scale = n, message = T, m = 2500 ,std = 0.2)
+saveRDS(result$primal_samples, file = "experiments/d120/eta10rho099m2500_primal.RDS")
+saveRDS(result$all_log_liklihood, file = "experiments/d120/eta10rho099m2500_lglik.RDS")
+saveRDS(result$time, file = "experiments/d120/eta10rho099m2500_time.RDS")
+saveRDS(result$all_x, file = "experiments/d120/eta10rho099m2500_allx.RDS")
+saveRDS(result$outer_loop_indices, file = "experiments/d120/eta1rho099m2500_outer.RDS")
+## m = n, deterministic MLA with no decrease in step size
+
+eta_inits = c(0.01,0.05,0.1,0.2,0.5,1,2,5,10,20,30)
+abbr = c("001","005","01","02", "05","1","2","5","10","20","30")
+results = list()
+for(i in length(eta_inits)){
+  results[[i]] = DMLA_new_grad_cpp_mix_lglik(theta0 = rep(1/d,d-1), x = x, alpha = alpha, B = length(result$all_log_liklihood), eta0 = eta_inits[i], rho = 1, lam = 1, multiplier = eta_inits[i], A = A, b = b, scale = n, message = F, m = n ,std = 0.2)
+  saveRDS(results[[i]]$primal_samples, file = paste("experiments/d120/eta",abbr[i],"_primal.RDS", sep = ""))
+  saveRDS(results[[i]]$all_log_liklihood, file = paste("experiments/d120/eta",abbr[i],"_lglik.RDS", sep = ""))
+  saveRDS(results[[i]]$time, file = paste("experiments/d120/eta",abbr[i],"_time.RDS", sep = ""))
+  saveRDS(results[[i]]$all_x, file = paste("experiments/d120/eta",abbr[i],"_allx.RDS", sep = ""))
+  saveRDS(results[[i]]$outer_loop_indices, file = paste("experiments/d120/eta",abbr[i],"_outer.RDS", sep = ""))
+  print(i)
+}
+
+
+## GGPLOT
+## TO-DO first form dat, then draw the plot.
+
+dims = c(30,50,80,100,120,150)
+library(ggplot2)
+library(latex2exp)
+font_size = 12
+My_Theme = theme(axis.title.x = element_text(size = font_size),axis.text.x = element_text(size = font_size),
+                 axis.title.y = element_text(angle = 90, size = font_size), axis.text.y = element_text(angle = 90, size = font_size),
+                 legend.text = element_text(size = font_size), legend.title = element_text(size = font_size), plot.title = element_text(size = font_size))
+for(i in 1:6){
+  dat = data.frame(list(
+    iterations = 1:length(result$all_log_liklihood),
+    y001 = t(readRDS(paste("experiments/d",dims[i],"/eta001_lglik.RDS", sep = ""))),
+    y005 = t(readRDS(paste("experiments/d",dims[i],"/eta005_lglik.RDS", sep = ""))),
+    y01 = t(readRDS(paste("experiments/d",dims[i],"/eta01_lglik.RDS", sep = ""))),
+    y02 = t(readRDS(paste("experiments/d",dims[i],"/eta02_lglik.RDS", sep = ""))),
+    y05 = t(readRDS(paste("experiments/d",dims[i],"/eta05_lglik.RDS", sep = ""))),
+    y1 = t(readRDS(paste("experiments/d",dims[i],"/eta1_lglik.RDS", sep = ""))),
+    y2 = t(readRDS(paste("experiments/d",dims[i],"/eta2_lglik.RDS", sep = ""))),
+    y5 = t(readRDS(paste("experiments/d",dims[i],"/eta5_lglik.RDS", sep = ""))),
+    y10 = t(readRDS(paste("experiments/d",dims[i],"/eta10_lglik.RDS", sep = ""))),
+    y20 = t(readRDS(paste("experiments/d",dims[i],"/eta20_lglik.RDS", sep = ""))),
+    ytrue = t(readRDS(paste("experiments/d",dims[i],"/eta1rho099_lglik.RDS", sep = "")))
+    )
+  )
+  
+  p = ggplot(dat) +
+  geom_line(aes(x = iterations, y = y005, color = "005", alpha = 0.5)) +
+  geom_line(aes(x = iterations, y = y02,  color = "02", alpha = 0.5)) +
+  geom_line(aes(x = iterations, y = y5, color = "5", alpha = 0.5)) +
+  geom_line(aes(x = iterations, y = ytrue, color = "0", alpha = 0.5), linewidth = 1.5, alpha = 0.8) +
+  labs(title = paste("Log-posterior: Deterministic MLA vs two-loop, d=", dims[i], sep = ""),
+       x = "iterations", y = "log-posterior") +
+  theme(
+    legend.position = "bottom",
+    legend.title = element_text(face = "bold")
+  ) + My_Theme +
+  scale_color_manual(
+    name = "Algorithm",
+    breaks = c("005", "02", "5", "0"),
+    labels = c(
+      TeX("MH, $\\eta = 0.05$"),
+      TeX("MH, $\\eta = 0.2$"), TeX("MH, $\\eta = 5$"),
+      TeX("two loop, $\\eta = 0.2$")
+    ),
+    values = c(
+      "005" = "orange", "02" = "red",
+      "5" = "green",
+      "0" = "blue"
+    )
+  )
+  
+  ggsave(filename = paste("Determistic_MLA_d", dims[i], "_vs_two_loop.png", sep = ""), p, width = 8, height = 5)
+}
+
+
+## MH step
+length(readRDS(paste("experiments/d",dims[i],"/eta001_lglik.RDS", sep = "")))
+# n = 10000
+for(i in 1:6){
+  d = dims[i]
+  alpha = rep(2,d)
+  x = readRDS(file = paste("experiments/d", d, "/data.RDS", sep = ""))
+  A = rbind(-diag(d-1), rep(1,d-1))
+  b = c(rep(0,d-1), 1)
+  result_MH = DMLA_MIX_MH_order1(theta0 = theta_start, x = x, alpha = alpha, B = 85968, eta0 = 10, lam = 1, A = A, b = b, scale = n, message = F, m = n ,std = 0.2)
+  saveRDS(result_MH$time, file =  paste("experiments/d",d,"/MH_time.RDS", sep = ""))
+  saveRDS(result_MH$primal_samples, file = paste("experiments/d",d,"/MH_primals.RDS", sep = ""))
+  saveRDS(result_MH$log_likelihood, file = paste("experiments/d",d,"/MH_lglik.RDS", sep = ""))
+}
+
+
+#saveRDS(readRDS(file =  paste("experiments/d150/MH_time1.RDS", sep = "")) + readRDS(file =  paste("experiments/d150/MH_time2.RDS", sep = "")),
+#        file = "experiments/d150/MH_time.RDS")
+
+#saveRDS(cbind(readRDS(file =  "experiments/d150/MH_primals1.RDS"), readRDS(file = "experiments/d150/MH_primals2.RDS")[,-1]),
+#        file = "experiments/d150/MH_primals.RDS")
+
+#saveRDS(c(readRDS(file =  "experiments/d150/MH_lglik1.RDS"), readRDS(file = "experiments/d150/MH_lglik2.RDS")[,-1]),
+#        file = "experiments/d150/MH_lglik.RDS")
+
+#
+#
+#
+# Compute Wassenstein distance
+install.packages("transport")
+install.packages("T4transport")
+library(T4transport)
+
+
+for(i in 2:6){
+  outer_loop_ind = readRDS(file =  paste("experiments/d", dims[i], "/eta02rho099_outer.RDS", sep = ""))
+  benchmark = readRDS(file =  paste("experiments/d", dims[i], "/MH_primals.RDS", sep = ""))[, -(1:10000)]
+  two_loop = readRDS(file =  paste("experiments/d", dims[i], "/eta02rho099_allx.RDS", sep = ""))
+  
+  X <- t(as.matrix(benchmark))
+  Y <- t(as.matrix(two_loop))
+  
+  Ws = numeric(150)
+  for(j in 1:150){
+  Ysmall = Y[1:outer_loop_ind[j], , drop = FALSE]
+    W <- T4transport::swdist(X,Ysmall,p = 2,nproj = 100)
+    Ws[j] = W$distance
+    print(j)
+  }
+  saveRDS(Ws, file = paste("experiments/d", dims[i], "/W2_sFO_MLA_eta02.RDS", sep = ""))
+  
+  for(k in 1:10){
+    Ws[2:150] = numeric(149)
+    Z = t(readRDS(file =  paste("experiments/d", dims[i] ,"/eta", abbr[k], "_allx.RDS", sep = "")))
+    for(j in 2:150){
+    Zsmall = Z[1:outer_loop_ind[j], , drop = F]
+      W <- T4transport::swdist(X,Zsmall,p = 2,nproj = 100)
+      Ws[j] = W$distance
+      print(j)
+    }
+    saveRDS(Ws, file = paste("experiments/d", dims[i], "/W2_eta", abbr[k], ".RDS", sep = ""))
+  }
+}
+
+
+
+
+W$distance
+
+Ws[1] = W_XZs[1]
+for(i in 2:150){
+  Zsmall = Z[1:outer_loop_ind[i], , drop = FALSE]
+    W <- T4transport::swdist(X,Zsmall,p = 2,nproj = 100)
+    Ws[i] = W$distance
+    print(i)
+}
+
+
+plot(y = W_XZs[1:150], x = 1:150, type = "l", col = "red", main = "W2 distance from benchmark", ylim = c(-0.0001, 0.007), ylab = "W2", xlab = "outer-loop iterations")
+lines(y = Ws[1:150], x = 1:150, type = "l", col = "blue")
+legend("topright", legend = c("MLA eta = 20/n", "two loop"), col = c("red", "blue"))
+abline(h = 0, lty = 2)
+
+
+W_XZs = numeric(150)
+for(i in 2:150){
+  Zsmall = Z[1:outer_loop_ind[i],]
+    W <- T4transport::swdist(X,Zsmall,p = 2,nproj = 100)
+    W_XZs[i] = W$distance
+}
+
+#saveRDS(Ws, file = "experiments/d30/W2_sFO_MLA_eta1.RDS")
+#saveRDS(Ws, file = "experiments/d30/W2_eta20.RDS")
+
+Ws = numeric(150)
+Ws[1] = W_XZs[1]
+for(i in 2:9){
+  Z = t(readRDS(file =  paste("experiments/d30/eta", abbr[i], "_allx.RDS", sep = "")))
+  for(j in 2:150){
+  Zsmall = Z[1:outer_loop_ind[j], , drop = F]
+    W <- T4transport::swdist(X,Zsmall,p = 2,nproj = 100)
+    Ws[j] = W$distance
+    print(j)
+  }
+  saveRDS(Ws, file = paste("experiments/d30/W2_eta", abbr[i], ".RDS", sep = ""))
+}
+
+#d = 30: MH eta0 10 accept :67
+#d = 50: MH eta0 10
+#d = 150: MH eta0 10 accept: 50
+
+
+readRDS(file = "experiments/d30/eta02rho099_time.RDS")
+plot(y = result$all_log_liklihood, x = 1:length(result$all_log_liklihood), type = "l")
+lines(y = result2$all_log_liklihood, x = 1:length(result2$all_log_liklihood), col = "green")
+points(y = result$all_log_liklihood[result$outer_loop_indices], x = result$outer_loop_indices, col = "red", pch = 16, cex = 0.5)
+
+
+
+# MH algorithm
+result_MH = DMLA_MIX_MH_order1(theta0 = rep(1/d,d-1), x = x, alpha = alpha, B = length(result$all_log_liklihood), eta0 = 0.01, lam = 1, A = A, b = b, scale = n, message = T, m = n ,std = 0.2)
+saveRDS(result_MH$primal_samples, file = "experiments/d30_MH/eta001_primal.RDS")
+saveRDS(result_MH$log_likelihood, file = "experiments/d30_MH/eta001_lglik.RDS")
+saveRDS(result_MH$time, file = "experiments/d30_MH/eta001_time.RDS")
+saveRDS(result_MH$acceptance, file = "experiments/d30_MH/eta001_accept.RDS")
+```
+
+```{r}
+# Trying a fix
+
+x = readRDS(file = "experiments/d30/data.RDS")
+n = 10000
+d = 30
+A = rbind(-diag(d-1), rep(1,d-1))
+b = c(rep(0,d-1), 1)
+result = DMLA_new_grad_cpp_mix_lglik(theta0 = rep(1/d,d-1), x = x, alpha = alpha, B = 150, eta0 = 1, rho = 0.99, lam = 1, multiplier = 250, A = A, b = b, scale = n, message = T, m = 500 ,std = 0.2)
+
+X = t(as.matrix(readRDS(file =  paste("experiments/d120/MH_primals.RDS", sep = ""))[, -(1:10000)]))
+Z = t(as.matrix(result$all_x))
+Y = t(readRDS("experiments/d120/eta30_primal.RDS"))
+outer_loop_ind = result$outer_loop_indices
+W_XZs = numeric(150)
+# saveRDS(W_XZs, file = "experiments/d120/W2_eta30.RDS")
+
+for(i in 1:150){
+  Ysmall = Y[1:outer_loop_ind[i], ,drop = F]
+    W <- T4transport::swdist(X,Ysmall,p = 2,nproj = 100)
+    W_XZs[i] = W$distance
+    print(i)
+}
+
+plot(y = W_XZs, x = 1:150)
+result$time
+readRDS(file = "experiments/d30/eta5_time.RDS")
+readRDS(file = "experiments/d30/W2_eta10.RDS")
+lg_MH = readRDS(file = "experiments/d30/MH_lglik.RDS")
+plot()
+
+0.9^10
+0.9^50
+0.9^100
+10^(-3)/0.95^100 
+```
+
+### 9/28 Update
+```{r}
+x = readRDS(file = "experiments/d100/data.RDS")
+n = 10000
+d = 100
+alpha = rep(2,d)
+A = rbind(-diag(d-1), rep(1,d-1))
+b = c(rep(0,d-1), 1)
+result = DMLA_new_grad_cpp_mix_lglik(theta0 = rep(1/d,d-1), x = x, alpha = alpha, B = 135, eta0 = 80, rho = 0.96, lam = 1, multiplier = 1200, A = A, b = b, scale = n, message = T, m = 2500 ,std = 0.2)
+
+saveRDS(result$primal_samples, file = "experiments/d100/d100_additional/eta80rho096m2500_primal.RDS")
+saveRDS(result$all_log_liklihood, file = "experiments/d100/d100_additional/eta80rho096m2500_lglik.RDS")
+saveRDS(result$time, file = "experiments/d100/d100_additional/eta80rho096m2500_time.RDS")
+saveRDS(result$all_x, file = "experiments/d100/d100_additional/eta80rho096m2500_allx.RDS")
+saveRDS(result$outer_loop_indices, file = "experiments/d100/d100_additional/eta80rho096m2500_outer.RDS")
+
+outer_loop_ind = result$outer_loop_indices
+length(result$all_log_liklihood)
+Z = t(as.matrix(result$all_x))
+X = t(as.matrix(readRDS(file =  paste("experiments/d100/MH_primals.RDS", sep = ""))[, 1:result$outer_loop_indices[135]]))
+X = X[-(1:10000),]
+
+
+W_XZs = numeric(135)
+for(i in 135){
+  Zsmall = Z[1:outer_loop_ind[i], ,drop = F]
+    W <- T4transport::swdist(X,Zsmall,p = 2,nproj = 100)
+    W_XZs[i] = W$distance
+    print(i)
+}
+
+#saveRDS(W_XZs, file = "experiments/d30/d30_additional/W2_sFO_MLA_eta30.RDS")
+
+plot(y =result$all_log_liklihood,x= 1:outer_loop_ind[135], type = "l")
+plot(y =readRDS("experiments/d30/MH_lglik.RDS"), x = 1:readRDS("experiments/d30/eta1rho099_outer.RDS")[150], type = "l")
+
+print(i)
+readRDS("experiments/d80/eta1rho099_outer.RDS")[135]
+readRDS("experiments/d100/W2_eta01.RDS")[135]
+readRDS("experiments/d100/W2_sFO_MLA_eta5.RDS")[135]
+W_XZs[135]
+```
+
+### 9/28: recalculate the W2 distances
+
+```{r}
+dims = c(30,50,80,100)
+etas = c(30,50,70,80)
+for(i in 4){
+  outer_loop_ind = readRDS(file =  paste("experiments/d", dims[i], "/d", dims[i], "_additional/eta", etas[i],"rho096m2500_outer.RDS", sep = ""))
+  benchmark = readRDS(file =  paste("experiments/d", dims[i], "/MH_primals.RDS", sep = ""))
+  two_loop = readRDS(file =  paste("experiments/d", dims[i], "/d", dims[i], "_additional/eta", etas[i],"rho096m2500_allx.RDS", sep = ""))
+  
+  X <- t(as.matrix(benchmark))[1:outer_loop_ind[135],]
+  X <- X[-(1:10000),]
+  Y <- t(as.matrix(two_loop))
+  
+  Ws = numeric(135)
+  for(j in 1:135){
+  Ysmall = Y[1:outer_loop_ind[j], , drop = FALSE]
+    W <- T4transport::swdist(X,Ysmall,p = 2,nproj = 100)
+    Ws[j] = W$distance
+    print(j)
+  }
+  saveRDS(Ws, file = paste("experiments/d", dims[i], "/d", dims[i], "_additional", "/W2_sFO_MLA_eta", etas[i],".RDS", sep = ""))
+  
+  abbr = c("001", "01", "30")
+  for(k in 1:3){
+    Ws[2:135] = numeric(134)
+    Z = t(readRDS(file =  paste("experiments/d", dims[i] ,"/eta", abbr[k], "_allx.RDS", sep = "")))
+    Z = Z[1:outer_loop_ind[135],]
+    for(j in 2:135){
+    Zsmall = Z[1:outer_loop_ind[j], , drop = F]
+      W <- T4transport::swdist(X,Zsmall,p = 2,nproj = 100)
+      Ws[j] = W$distance
+      print(j)
+    }
+    saveRDS(Ws, file = paste("experiments/d", dims[i], "/d", dims[i], "_additional", "/W2_eta", abbr[k], ".RDS", sep = ""))
+  }
+}
+```
+

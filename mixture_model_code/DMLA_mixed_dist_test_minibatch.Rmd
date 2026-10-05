@@ -1,0 +1,104 @@
+---
+title: "091626"
+author: "Ruiting Tong"
+date: "2026-09-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Test mini-batch
+```{r}
+library(Rcpp)
+sourceCpp(file = "DMLA_combine_mixture_model.cpp")
+
+d = 30
+n = 10000
+alpha = rep(2,d)
+A = rbind(-diag(d-1), rep(1,d-1))
+b = c(rep(0,d-1), 1)
+
+x = readRDS("experiments/d30/data.RDS")
+minibatches = c(500,10000)
+
+for(k in 1:2){
+  result = DMLA_new_grad_cpp_mix_lglik(theta0 = rep(1/d,d-1), x = x, alpha = alpha, B = 135, eta0 = 30, rho = 0.96, lam = 1, multiplier = 450, A = A, b = b, scale = n, message = T, m = 500, std = 0.2)
+  saveRDS(result$all_x, file = paste("test_minibatch/eta30rho096m", minibatches[k], "_allx.RDS", sep = ""))
+  saveRDS(result$outer_loop_indices, file = paste("test_minibatch/eta30rho096m", minibatches[k], "500_outer.RDS", sep = ""))
+}
+
+# Compute W2
+benchmark = readRDS(file =  paste("experiments/d30/MH_primals.RDS", sep = ""))
+outer_loop_ind = readRDS(file =  paste("test_minibatch/eta30rho096m500_outer.RDS", sep = ""))
+X <- t(as.matrix(benchmark))[1:outer_loop_ind[135],]
+X <- X[-(1:10000),]
+abbr = c("500", "10000")
+Ws = numeric(135)
+Ws[1] = readRDS("experiments/d30/d30_additional/W2_eta01.RDS")[1] 
+
+for(k in 1:2){
+  Z = t(readRDS(file =  paste("test_minibatch/eta30rho096m", abbr[k], "_allx.RDS", sep = "")))
+  Z = Z[1:outer_loop_ind[135],]
+  
+  for(j in 2:135){
+    Zsmall = Z[1:outer_loop_ind[j], , drop = F]
+    W <- T4transport::swdist(X,Zsmall,p = 2,nproj = 100)
+    Ws[j] = W$distance
+    print(j)
+  }
+  saveRDS(Ws, file = paste("test_minibatch/W2_d30_eta", abbr[k], ".RDS", sep = ""))
+}
+```
+
+```{r}
+dat = data.frame(list(
+  iterations = 1:135,
+  m500 = readRDS(paste("test_minibatch/W2_d30_eta", 500, ".RDS", sep = "")),
+  m2500 = readRDS(paste("experiments/d30/d30_additional/W2_sFO_MLA_eta30.RDS", sep = "")),
+  m10000 = readRDS(paste("test_minibatch/W2_d30_eta", 10000, ".RDS", sep = "")),
+  mfixed_size = readRDS(paste("experiments/d30/d30_additional/W2_eta30.RDS", sep = ""))
+  )
+)
+
+library(ggplot2)
+library(latex2exp)
+font_size = 12
+My_Theme = theme(axis.title.x = element_text(size = font_size),axis.text.x = element_text(size = font_size),
+                 axis.title.y = element_text(angle = 90, size = font_size), axis.text.y = element_text(angle = 90, size = font_size),
+                 legend.text = element_text(size = font_size), legend.title = element_text(size = font_size), plot.title = element_text(size = font_size))
+
+
+p = ggplot(dat) +
+geom_line(aes(x = iterations, y = m500, color = "500"), linewidth = 1, alpha = 0.5) +
+geom_line(aes(x = iterations, y = m2500,  color = "2500"), linewidth = 1, alpha = 0.5) +
+geom_line(aes(x = iterations, y = m10000, color = "10000"), linewidth = 1, alpha = 0.5) +
+geom_line(aes(x = iterations, y = mfixed_size, color = "0"), linewidth = 1, alpha = 0.5) +
+labs(title = TeX(paste("$W_2$ distance: sFO-MLA with different minibatch sizes, K= 30", sep = "")),
+     x = TeX("$k$ for $T_k + 1$"), y = TeX("$W_2$ distance")) + theme_bw() + 
+theme(
+  legend.position = "bottom",
+  legend.title = element_text(face = "bold")
+) + My_Theme +
+scale_color_manual(
+  name = "Algorithm",
+  breaks = c("500", "2500", "10000", "0"),
+  labels = c(
+    TeX("sFO-MLA two-loop, $\\eta_0 = 3\\times 10^{-3}$, minibatch size = 500"),
+    TeX("sFO-MLA two-loop, $\\eta_0 = 3\\times 10^{-3}$, minibatch size = 2500"), TeX("sFO-MLA two-loop, $\\eta_0 = 3\\times 10^{-3}$, minibatch size = 10000 (deterministic)"),
+    TeX(paste("MLA with $\\eta = 3\\times 10^{-3}$", sep = ""))
+  ),
+  values = c(
+    "500" = "orange", "2500" = "blue",
+    "10000" = "red",
+    "0" = "green"
+  )
+)+ guides(
+  color = guide_legend(nrow = 4, byrow = TRUE),
+)
+
+ggsave(filename = paste("test_minibatch/","W2_d30_minibatch_difference.png", sep = ""), p, width = 7, height = 5)
+```
+
+
