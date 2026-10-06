@@ -74,7 +74,7 @@ Y <- t(as.matrix(two_loop))
 Ws = numeric(135)
 for(j in 1:135){
 Ysmall = Y[1:outer_loop_ind[j], , drop = FALSE]
-  W <- T4transport::swdist(X,Ysmall,p = 2)
+  W <- T4transport::swdist(X,Ysmall,p = 2,num_proj = 496)
   Ws[j] = W$distance
   print(j)
 }
@@ -87,7 +87,7 @@ for(k in 1:3){
   Z = Z[1:outer_loop_ind[135],]
   for(j in 2:135){
   Zsmall = Z[1:outer_loop_ind, , drop = F]
-    W <- T4transport::swdist(X,Zsmall,p = 2)
+    W <- T4transport::swdist(X,Zsmall,p = 2,num_proj = 496)
     Ws[j] = W$distance
     print(j)
   }
