@@ -238,7 +238,7 @@ The mixture-model experiments consider $K \in \{30, 50, 80, 100\}$, use $n=10{,}
 
 The experiment notebooks use paths relative to their own directories. Set the working directory to `mixture_model_code/` or `PGM_code/` and create the required paths before running their chunks. Some plotting chunks load previously generated `.RDS` files that are not included in the repository; run the corresponding sampling and data-generation chunks first, create the referenced output directories, and then run the plotting chunks.
 
-The code in the Reproducibility folder can be run in full after creating the experiments/d30 folder and sourcing the sFO_MLA_mixture_model.cpp code. The user will reproduce the W2 distance plot for K = 30 in our paper. 
+The code in the Reproducibility folder can be run in full after creating the experiments/d30 folder and sourcing the sFO_MLA_mixture_model.cpp code. The user can reproduce the W2 distance plot for K = 30 in our paper. 
 
 ## Reference
 
