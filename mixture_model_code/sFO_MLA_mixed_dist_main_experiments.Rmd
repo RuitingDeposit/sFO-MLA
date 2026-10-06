@@ -23,7 +23,7 @@ x = rnorm(n, mean = 0, sd = 0.2)
 x = x + classes
 ```
 
-# With Rcpp
+# two-loop sFO-MLA with Rcpp
 ```{r}
 library(Rcpp)
 sourceCpp(file = "sFO_MLA_mixture_model.cpp")
@@ -53,11 +53,10 @@ for(i in length(eta_inits)){
   saveRDS(results[[i]]$outer_loop_indices, file = paste("experiments/d120/eta",abbr[i],"_outer.RDS", sep = ""))
   print(i)
 }
-
+```
 
 ## GGPLOT
-## TO-DO first form dat, then draw the plot.
-
+```{r}
 dims = c(30,50,80,100,120,150)
 library(ggplot2)
 library(latex2exp)
@@ -110,9 +109,10 @@ for(i in 1:6){
   
   ggsave(filename = paste("Determistic_MLA_d", dims[i], "_vs_two_loop.png", sep = ""), p, width = 8, height = 5)
 }
+```
 
-
-## MH step
+## Add MH step
+```{r}
 length(readRDS(paste("experiments/d",dims[i],"/eta001_lglik.RDS", sep = "")))
 # n = 10000
 for(i in 1:6){
@@ -138,9 +138,10 @@ for(i in 1:6){
 #        file = "experiments/d150/MH_lglik.RDS")
 
 #
-#
-#
-# Compute Wassenstein distance
+```
+
+### Compute Wassenstein distance
+```{r}
 install.packages("transport")
 install.packages("T4transport")
 library(T4transport)
@@ -239,9 +240,8 @@ saveRDS(result_MH$time, file = "experiments/d30_MH/eta001_time.RDS")
 saveRDS(result_MH$acceptance, file = "experiments/d30_MH/eta001_accept.RDS")
 ```
 
+#### Old calculation
 ```{r}
-# Trying a fix
-
 x = readRDS(file = "experiments/d30/data.RDS")
 n = 10000
 d = 30
@@ -264,19 +264,9 @@ for(i in 1:150){
 }
 
 plot(y = W_XZs, x = 1:150)
-result$time
-readRDS(file = "experiments/d30/eta5_time.RDS")
-readRDS(file = "experiments/d30/W2_eta10.RDS")
-lg_MH = readRDS(file = "experiments/d30/MH_lglik.RDS")
-plot()
-
-0.9^10
-0.9^50
-0.9^100
-10^(-3)/0.95^100 
 ```
 
-### 9/28 Update
+#### 9/28 Update
 ```{r}
 x = readRDS(file = "experiments/d100/data.RDS")
 n = 10000
@@ -319,12 +309,12 @@ readRDS("experiments/d100/W2_sFO_MLA_eta5.RDS")[135]
 W_XZs[135]
 ```
 
-### 9/28: recalculate the W2 distances
+#### 9/28: recalculate the W2 distances
 
 ```{r}
 dims = c(30,50,80,100)
 etas = c(30,50,70,80)
-for(i in 4){
+for(i in 1:4){
   outer_loop_ind = readRDS(file =  paste("experiments/d", dims[i], "/d", dims[i], "_additional/eta", etas[i],"rho096m2500_outer.RDS", sep = ""))
   benchmark = readRDS(file =  paste("experiments/d", dims[i], "/MH_primals.RDS", sep = ""))
   two_loop = readRDS(file =  paste("experiments/d", dims[i], "/d", dims[i], "_additional/eta", etas[i],"rho096m2500_allx.RDS", sep = ""))
