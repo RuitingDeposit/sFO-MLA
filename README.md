@@ -229,7 +229,9 @@ PGM_code/
   PGM_sFO_MLA_functions.R
   PGM_sFO_MLA.Rmd
 Reproducibility/
-  W2_computation_for_d30.Rmd         # Code to generate data, obtain samples, compute W2 distance, and create a plot in one sitting for K = 30.
+  W2_computation_for_d30.Rmd         # Code to generate data, obtain samples,
+                                     # compute W2 distance, and create a plot in one sitting for K = 30.
+  W2_d30.png                         # The plot one expects to see after running the above code.
 ```
 
 The mixture-model experiments consider $K \in \{30, 50, 80, 100\}$, use $n=10{,}000$ observations, a minibatch size of 2,500, geometric decay factor `rho = 0.96`, and 135 outer samples. The PGM experiments use Monte Carlo estimates of the intractable likelihood contribution and compare two-loop sFO-MLA with an exchange-algorithm correction.
