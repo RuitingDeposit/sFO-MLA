@@ -147,7 +147,7 @@ The same example, organized as an R Markdown document, is available in `demo/sFO
 
 The resulting traces for the two free mixture weights are shown below.
 
-| Trace of \(\theta_1\) | Trace of \(\theta_2\) |
+| Trace of $\theta_1$ | Trace of $\theta_2$ |
 |:---:|:---:|
 | ![Trace plot of theta 1](./trace_plot_theta_1.png) | ![Trace plot of theta 2](./trace_plot_theta_2.png) |
 
