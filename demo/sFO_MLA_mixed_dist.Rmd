@@ -24,7 +24,7 @@ x = x + classes
 
 ### Source our function
 ```{r}
-source(file = "../sMLA.R")
+source(file = "../man/sMLA.R")
 ```
 
 ### Compute the gradient with R functions. 
@@ -59,7 +59,8 @@ grad_est = function(m,x,dat,alpha,std){
 ```{r}
 A = rbind(-diag(d-1), rep(1,d-1))
 b = c(rep(0,d-1), 1)
+#saveRDS(x, file = "K3_samples.RDS")
 
-sMLA(grad = grad_est, x0 = rep(1/d, d-1), K = 10, eta0 = 1, rho = 0.99, lam = 1, multiplier = 50, A = A, b = b, scale = n, message = T, dat = x, m = 2500, alpha = rep(2,d), std = 0.2)
+result_d3 = sMLA(grad = grad_est, x0 = rep(1/d, d-1), K = 135, eta0 = 1, rho = 0.96, lam = 1, multiplier = 15, A = A, b = b, scale = n, message = T, dat = x, m = 2500, alpha = rep(2,d), std = 0.2)
 ```
 
