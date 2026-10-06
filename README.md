@@ -145,9 +145,56 @@ The returned list includes:
 
 The same example, organized as an R Markdown document, is available in `demo/sFO_MLA_mixed_dist.Rmd`.
 
+The resulting traces for the two free mixture weights are shown below.
+
+| Trace of \(\theta_1\) | Trace of \(\theta_2\) |
+|:---:|:---:|
+| ![Trace plot of theta 1](demo/trace_plot_theta_1.png) | ![Trace plot of theta 2](demo/trace_plot_theta_2.png) |
+
 ## Model-specific experiment implementations
 
 The Rcpp code in `mixture_model_code/` and `PGM_code/` is used for the two experiments in the paper. These implementations trade generality for speed and are separate from the general-purpose demonstration above.
+
+### Bayesian mixture weights
+
+The mixture-weight experiment uses an ad hoc Rcpp implementation that directly evaluates the model-specific minibatch gradient and log posterior. The following small example illustrates this optimized interface. Run it from the repository root.
+
+```r
+library(Rcpp)
+
+sourceCpp("mixture_model_code/sFO_MLA_mixture_model.cpp")
+
+set.seed(1)
+
+n <- 500L
+d <- 3L
+alpha <- rep(2, d)
+true_weights <- c(0.2, 0.3, 0.5)
+classes <- sample(1:d, n, replace = TRUE, prob = true_weights)
+x <- rnorm(n, mean = classes, sd = 0.2)
+
+A <- rbind(-diag(d - 1), rep(1, d - 1))
+b <- c(rep(0, d - 1), 1)
+
+result_cpp <- DMLA_new_grad_cpp_mix_lglik(
+  theta0 = rep(1 / d, d - 1),
+  x = x,
+  alpha = alpha,
+  B = 20L,
+  eta0 = 0.05,
+  rho = 0.96,
+  lam = 1,
+  multiplier = 0.05,
+  A = A,
+  b = b,
+  scale = n,
+  message = TRUE,
+  m = 100L,
+  std = 0.2
+)
+```
+
+The full mixture-model sampling, fixed-step and MH-corrected comparisons, Wasserstein-distance calculations, and plotting workflows are provided in `mixture_model_code/sFO_MLA_mixed_dist_main_experiments.Rmd` and the other R Markdown files in that directory.
 
 ### Poisson graphical model
 
