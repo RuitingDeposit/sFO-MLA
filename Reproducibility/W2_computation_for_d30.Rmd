@@ -9,14 +9,63 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+# Generate data
+
+```{r}
+n = 10000
+d = 30
+alpha = rep(2,d)
+theta = c(rep(0.5/d, 4), rep(1/d, d - 8), rep(1.5/d, 3))
+classes = sample(1:d, size = n, prob = c(theta, 1-sum(theta)), replace = T)
+
+x = rnorm(n, mean = 0, sd = 0.2)
+x = x + classes
+saveRDS(x, file = "experiments/d30/data.RDS")
+```
+
+# Generate posterior samples
+
+```{r}
+library(Rcpp)
+sourceCpp(file = "sFO_MLA_mixture_model.cpp")
+
+A = rbind(-diag(d-1), rep(1,d-1))
+b = c(rep(0,d-1), 1)
+etas = c(0.01, 0.1, 30) # scaled by n = 10000
+
+# Generate the two-loop sFO-MLA samples
+result = DMLA_new_grad_cpp_mix_lglik(theta0 = rep(1/d,d-1), x = x, alpha = alpha, B = 135, eta0 = 30, rho = 0.96, lam = 1, multiplier = 450, A = A, b = b, scale = n, message = T, m = 2500 ,std = 0.2)
+saveRDS(result$primal_samples, file = "experiments/d30/eta30rho096m2500_primal.RDS")
+saveRDS(result$all_log_liklihood, file = "experiments/d30/eta30rho096m2500_lglik.RDS")
+saveRDS(result$time, file = "experiments/d30/eta30rho096m2500_time.RDS")
+saveRDS(result$all_x, file = "experiments/d30/eta30rho096m2500_allx.RDS")
+saveRDS(result$outer_loop_indices, file = "experiments/d30/eta30rho096m2500_outer.RDS")
+
+## Check length(result$all_log_liklihood) == 85203
+
+# Generate the deterministic MLA samples with etas defined above 
+for(i in 1:3){
+  result = DMLA_new_grad_cpp_mix_lglik(theta0 = rep(1/d,d-1), x = x, alpha = alpha, B = 85203, eta0 = etas[i], rho = 0.96, lam = 1, multiplier = etas[i], A = A, b = b, scale = n, message = T, m = n ,std = 0.2)
+  saveRDS(result$primal_samples, file = paste("experiments/d30/eta", etas[i] ,"_primal.RDS", sep = ""))
+  saveRDS(result$all_log_liklihood, file = paste("experiments/d30/eta", etas[i] ,"_lglik.RDS", sep = ""))
+  saveRDS(result$time, file = paste("experiments/d30/eta", etas[i] ,"_time.RDS", sep = ""))
+  saveRDS(result$all_x, file = paste("experiments/d30/eta", etas[i] ,"_allx.RDS", sep = ""))
+  saveRDS(result$outer_loop_indices, file = paste("experiments/d30/eta", etas[i] ,"_outer.RDS", sep = ""))
+}
+
+# Generate MH samples
+result_MH = DMLA_MIX_MH_order1(theta0 = rep(1/d,d-1), x = x, alpha = alpha, B = 85203, eta0 = 10, lam = 1, A = A, b = b, scale = n, message = F, m = n ,std = 0.2)
+saveRDS(result_MH$time, file =  "experiments/d30/MH_time.RDS")
+saveRDS(result_MH$primal_samples, file ="experiments/d30/MH_primals.RDS")
+saveRDS(result_MH$log_likelihood, file = "experiments/d30/MH_lglik.RDS")
+```
+
 # Calculate Wassenstein distance for d = 30
 
 ```{r}
-etas = 30 # scaled by n = 10000
-
-outer_loop_ind = readRDS(file =  paste("experiments/d30/eta", etas,"rho096m2500_outer.RDS", sep = ""))
-benchmark = readRDS(file =  paste("experiments/d30/MH_primals.RDS", sep = ""))
-two_loop = readRDS(file =  paste("experiments/d30/eta", etas,"rho096m2500_allx.RDS", sep = ""))
+outer_loop_ind = readRDS(file =  "experiments/d30/eta30rho096m2500_outer.RDS")
+benchmark = readRDS(file =  "experiments/d30/MH_primals.RDS")
+two_loop = readRDS(file =  "experiments/d30/eta30rho096m2500_allx.RDS")
 
 X <- t(as.matrix(benchmark))[1:outer_loop_ind[135],]
 X <- X[-(1:10000),]
@@ -29,7 +78,7 @@ Ysmall = Y[1:outer_loop_ind[j], , drop = FALSE]
   Ws[j] = W$distance
   print(j)
 }
-saveRDS(Ws, file = paste("experiments/d30/W2_sFO_MLA_eta", etas,".RDS", sep = ""))
+saveRDS(Ws, file ="experiments/d30/W2_sFO_MLA_eta30.RDS")
 
 abbr = c("001", "01", "30")
 for(k in 1:3){
