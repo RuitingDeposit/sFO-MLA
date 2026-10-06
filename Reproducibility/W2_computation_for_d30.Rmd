@@ -94,3 +94,71 @@ for(k in 1:3){
   saveRDS(Ws, file = paste("experiments/d30/W2_eta", abbr[k], ".RDS", sep = ""))
 }
 ```
+
+# Plot W2 for d = 30
+```{r}
+font_size = 12
+My_Theme = theme(axis.title.x = element_text(size = font_size),axis.text.x = element_text(size = font_size),
+                 axis.title.y = element_text(angle = 90, size = font_size), axis.text.y = element_text(angle = 90, size = font_size),
+                 legend.text = element_text(size = font_size), legend.title = element_text(size = font_size), plot.title = element_text(size = font_size))
+
+library(ggplot2)
+library(latex2exp)
+
+smooth = function(x){
+  l = length(x)
+  y = numeric(l)
+  for(i in 1:l){
+    if(i == 1 | i == l){y[i] = x[i]}
+    else if (i <= 3| i >= l - 2){y[i] = 1/3*(sum(x[(i-1):(i+1)]))}
+    else {y[i] = 1/5*(sum(x[(i-2):(i+2)]))}
+  }
+  return(y)
+}
+
+dat = data.frame(list(
+  iterations = 1:135,
+  w001 = readRDS("experiments/d30/W2_eta001.RDS"),
+  w01 = readRDS("experiments/d30/W2_eta01.RDS"),
+  wbig = readRDS("experiments/d30/W2_eta30.RDS"),
+  wtrue = readRDS("experiments/d30/W2_sFO_MLA_eta30.RDS")
+  )
+)
+
+dat_new = dat
+dat_new$iterations = dat$iterations - 1
+dat_new$w001 = smooth(dat$w001)
+dat_new$w01 = smooth(dat$w01)
+dat_new$wbig = smooth(dat$wbig)
+dat_new$wtrue = smooth(dat$wtrue)
+
+p = ggplot(dat_new) +
+geom_line(aes(x = iterations, y = w001, color = "001"), linewidth = 1, alpha = 0.5) +
+geom_line(aes(x = iterations, y = w01,  color = "01"), linewidth = 1, alpha = 0.5) +
+geom_line(aes(x = iterations, y = wbig, color = "big"), linewidth = 1, alpha = 0.5) +
+geom_line(aes(x = iterations, y = wtrue, color = "0"), linewidth = 1, alpha = 0.5) +
+labs(title = TeX("$W_2$ distance: MLA vs two-loop sFO-MLA, K=30"),
+     x = TeX("$k$ for $T_k + 1$"), y = TeX("$W_2$ distance")) + theme_bw() + 
+theme(
+  legend.position = "bottom",
+  legend.title = element_text(face = "bold")
+) + My_Theme +
+scale_color_manual(
+  name = "Algorithm",
+  breaks = c("001", "01", "big", "0"),
+  labels = c(
+    TeX("MLA, $\\eta = 10^{-6}$"),
+    TeX("MLA, $\\eta = 10^{-5}$"), TeX("MLA, $\\eta = 3\\times 10^{-3}$"),
+    TeX("two-loop sFO-MLA, $\\eta_0 = 3 \\times 10^{-3}, \\beta = 0.96$",)
+  ),
+  values = c(
+    "001" = "orange", "01" = "red",
+    "big" = "green",
+    "0" = "blue"
+  )
+)+ guides(
+  color = guide_legend(nrow = 2, byrow = TRUE),
+)
+
+ggsave(filename = paste("W2_30.png", sep = ""), p, width = 7, height = 5)
+```
