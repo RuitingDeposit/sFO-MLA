@@ -158,7 +158,7 @@ for(i in 2:6){
   Ws = numeric(150)
   for(j in 1:150){
   Ysmall = Y[1:outer_loop_ind[j], , drop = FALSE]
-    W <- T4transport::swdist(X,Ysmall,p = 2,nproj = 100)
+    W <- T4transport::swdist(X,Ysmall,p = 2,num_proj = 496)
     Ws[j] = W$distance
     print(j)
   }
@@ -169,7 +169,7 @@ for(i in 2:6){
     Z = t(readRDS(file =  paste("experiments/d", dims[i] ,"/eta", abbr[k], "_allx.RDS", sep = "")))
     for(j in 2:150){
     Zsmall = Z[1:outer_loop_ind[j], , drop = F]
-      W <- T4transport::swdist(X,Zsmall,p = 2,nproj = 100)
+      W <- T4transport::swdist(X,Zsmall,p = 2,num_proj = 496)
       Ws[j] = W$distance
       print(j)
     }
@@ -185,7 +185,7 @@ W$distance
 Ws[1] = W_XZs[1]
 for(i in 2:150){
   Zsmall = Z[1:outer_loop_ind[i], , drop = FALSE]
-    W <- T4transport::swdist(X,Zsmall,p = 2,nproj = 100)
+    W <- T4transport::swdist(X,Zsmall,p = 2,num_proj = 496)
     Ws[i] = W$distance
     print(i)
 }
@@ -200,7 +200,7 @@ abline(h = 0, lty = 2)
 W_XZs = numeric(150)
 for(i in 2:150){
   Zsmall = Z[1:outer_loop_ind[i],]
-    W <- T4transport::swdist(X,Zsmall,p = 2,nproj = 100)
+    W <- T4transport::swdist(X,Zsmall,p = 2,num_proj = 496)
     W_XZs[i] = W$distance
 }
 
@@ -213,7 +213,7 @@ for(i in 2:9){
   Z = t(readRDS(file =  paste("experiments/d30/eta", abbr[i], "_allx.RDS", sep = "")))
   for(j in 2:150){
   Zsmall = Z[1:outer_loop_ind[j], , drop = F]
-    W <- T4transport::swdist(X,Zsmall,p = 2,nproj = 100)
+    W <- T4transport::swdist(X,Zsmall,p = 2,num_proj = 496)
     Ws[j] = W$distance
     print(j)
   }
@@ -258,7 +258,7 @@ W_XZs = numeric(150)
 
 for(i in 1:150){
   Ysmall = Y[1:outer_loop_ind[i], ,drop = F]
-    W <- T4transport::swdist(X,Ysmall,p = 2,nproj = 100)
+    W <- T4transport::swdist(X,Ysmall,p = 2,num_proj = 496)
     W_XZs[i] = W$distance
     print(i)
 }
@@ -292,7 +292,7 @@ X = X[-(1:10000),]
 W_XZs = numeric(135)
 for(i in 135){
   Zsmall = Z[1:outer_loop_ind[i], ,drop = F]
-    W <- T4transport::swdist(X,Zsmall,p = 2,nproj = 100)
+    W <- T4transport::swdist(X,Zsmall,p = 2,num_proj = 496)
     W_XZs[i] = W$distance
     print(i)
 }
@@ -326,7 +326,7 @@ for(i in 1:4){
   Ws = numeric(135)
   for(j in 1:135){
   Ysmall = Y[1:outer_loop_ind[j], , drop = FALSE]
-    W <- T4transport::swdist(X,Ysmall,p = 2,nproj = 100)
+    W <- T4transport::swdist(X,Ysmall,p = 2,num_proj = 496)
     Ws[j] = W$distance
     print(j)
   }
@@ -339,7 +339,7 @@ for(i in 1:4){
     Z = Z[1:outer_loop_ind[135],]
     for(j in 2:135){
     Zsmall = Z[1:outer_loop_ind[j], , drop = F]
-      W <- T4transport::swdist(X,Zsmall,p = 2,nproj = 100)
+      W <- T4transport::swdist(X,Zsmall,p = 2,num_proj = 496)
       Ws[j] = W$distance
       print(j)
     }
