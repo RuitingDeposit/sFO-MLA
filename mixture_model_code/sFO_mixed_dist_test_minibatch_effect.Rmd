@@ -44,7 +44,7 @@ for(k in 1:2){
   
   for(j in 2:135){
     Zsmall = Z[1:outer_loop_ind[j], , drop = F]
-    W <- T4transport::swdist(X,Zsmall,p = 2,nproj = 100)
+    W <- T4transport::swdist(X,Zsmall,p = 2,num_proj = 496)
     Ws[j] = W$distance
     print(j)
   }
