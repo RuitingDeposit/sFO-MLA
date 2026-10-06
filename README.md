@@ -15,6 +15,8 @@ The repository contains two applications:
 - **Bayesian mixture weights:** sampling mixture weights on a simplex, with stochastic gradients obtained by minibatching observations.
 - **Poisson graphical models:** sampling a constrained posterior with an intractable normalizing constant, with stochastic gradients estimated by Monte Carlo simulation.
 
+For these two applications we write ad-hoc Rcpp code for fast implementation of our algorithm. The code is split into two folders. For the general-purpose code, please find sMLA.R in man.
+
 ## Installation
 
 Clone the repository:
