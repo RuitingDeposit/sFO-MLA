@@ -228,11 +228,15 @@ PGM_code/
   PGM_sFO_MLA.cpp                    # Ad hoc PGM Rcpp code
   PGM_sFO_MLA_functions.R
   PGM_sFO_MLA.Rmd
+Reproducibility/
+  W2_computation_for_d30.Rmd         # Code to generate data, obtain samples, compute W2 distance, and create a plot in one sitting for K = 30.
 ```
 
 The mixture-model experiments consider $K \in \{30, 50, 80, 100\}$, use $n=10{,}000$ observations, a minibatch size of 2,500, geometric decay factor `rho = 0.96`, and 135 outer samples. The PGM experiments use Monte Carlo estimates of the intractable likelihood contribution and compare two-loop sFO-MLA with an exchange-algorithm correction.
 
-The experiment notebooks use paths relative to their own directories. Set the working directory to `mixture_model_code/` or `PGM_code/` before running their chunks. Some plotting chunks load previously generated `.RDS` files that are not included in the repository; run the corresponding sampling and data-generation chunks first, create the referenced output directories, and then run the plotting chunks.
+The experiment notebooks use paths relative to their own directories. Set the working directory to `mixture_model_code/` or `PGM_code/` and create the required paths before running their chunks. Some plotting chunks load previously generated `.RDS` files that are not included in the repository; run the corresponding sampling and data-generation chunks first, create the referenced output directories, and then run the plotting chunks.
+
+The code in the Reproducibility folder can be run in full after creating the experiments/d30 folder and sourcing the sFO_MLA_mixture_model.cpp code. The user will reproduce the W2 distance plot for K = 30 in our paper. 
 
 ## Reference
 
