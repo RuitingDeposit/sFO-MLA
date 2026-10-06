@@ -1,3 +1,38 @@
+# sFO-MLA
+
+R and Rcpp implementations of the stochastic first-order Mirror Langevin Algorithm (sFO-MLA) and its warm-started two-loop variant for sampling from constrained distributions.
+
+The code accompanies the manuscript **"Two-Loop Stochastic Mirror Langevin Algorithms for Constrained Sampling."** It includes implementations and experiment scripts for Bayesian mixture-weight inference on the simplex and posterior sampling in Poisson graphical models with an intractable normalizing constant.
+
+## Description
+
+Mirror Langevin algorithms map a constrained sampling problem to an unconstrained dual space through a mirror map. Standard fixed-step implementations mix quickly at larger step sizes but retain a nonvanishing discretization error, while smaller step sizes reduce this error at the cost of slower mixing.
+
+The two-loop sFO-MLA implementation uses a geometric step-size schedule. At each outer epoch, the algorithm runs a fixed-step sFO-MLA chain for a corresponding number of inner iterations and warm-starts the next epoch from the current endpoint. The accompanying paper establishes finite-time Wasserstein bounds separating transient mixing, Euler-Maruyama discretization, and stochastic-gradient errors, and shows that the two-loop construction attains an \(O(T^{-1/2})\) rate under the stated assumptions.
+
+The repository contains two applications:
+
+- **Bayesian mixture weights:** sampling mixture weights on a simplex, with stochastic gradients obtained by minibatching observations.
+- **Poisson graphical models:** sampling a constrained posterior with an intractable normalizing constant, with stochastic gradients estimated by Monte Carlo simulation.
+
+## Implementations
+
+The repository distinguishes between a general-purpose implementation and optimized, model-specific experiment code:
+
+- `man/sMLA.R` is the **general-purpose R implementation**. Its `sMLA()` interface accepts either a stochastic gradient function through `grad` or a zeroth-order objective through `Fn`, together with linear constraints `A %*% x <= b`.
+- `mixture_model_code/sFO_MLA_mixture_model.cpp` is an **ad hoc Rcpp implementation** optimized for the Gaussian mixture-weight experiments.
+- `PGM_code/PGM_sFO_MLA.cpp` is an **ad hoc Rcpp/RcppArmadillo implementation** optimized for the Poisson graphical model experiments.
+
+The Rcpp code supports the two applications studied in the paper; it is not intended to be the general user interface. The demonstration below therefore uses `sMLA()` from `man/sMLA.R`.
+
+## Installation
+
+Clone the repository:
+
+```bash
+git clone https://github.com/RuitingDeposit/sFO-MLA.git
+cd sFO-MLA
+```
 
 Install the package required by the general-purpose implementation:
 
