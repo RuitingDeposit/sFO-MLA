@@ -149,7 +149,7 @@ The resulting traces for the two free mixture weights are shown below.
 
 | Trace of \(\theta_1\) | Trace of \(\theta_2\) |
 |:---:|:---:|
-| ![Trace plot of theta 1](../trace_plot_theta_1.png) | ![Trace plot of theta 2](../trace_plot_theta_2.png) |
+| ![Trace plot of theta 1](./trace_plot_theta_1.png) | ![Trace plot of theta 2](./trace_plot_theta_2.png) |
 
 ## Model-specific experiment implementations
 
@@ -230,7 +230,7 @@ PGM_code/
   PGM_sFO_MLA.Rmd
 ```
 
-The mixture-model experiments consider \(K \in \{30, 50, 80, 100\}\), use \(n=10{,}000\) observations, a minibatch size of 2,500, geometric decay factor `rho = 0.96`, and 135 outer samples. The PGM experiments use Monte Carlo estimates of the intractable likelihood contribution and compare two-loop sFO-MLA with an exchange-algorithm correction.
+The mixture-model experiments consider $K \in \{30, 50, 80, 100\}$, use $n=10{,}000$ observations, a minibatch size of 2,500, geometric decay factor `rho = 0.96`, and 135 outer samples. The PGM experiments use Monte Carlo estimates of the intractable likelihood contribution and compare two-loop sFO-MLA with an exchange-algorithm correction.
 
 The experiment notebooks use paths relative to their own directories. Set the working directory to `mixture_model_code/` or `PGM_code/` before running their chunks. Some plotting chunks load previously generated `.RDS` files that are not included in the repository; run the corresponding sampling and data-generation chunks first, create the referenced output directories, and then run the plotting chunks.
 
