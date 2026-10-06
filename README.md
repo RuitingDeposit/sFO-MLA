@@ -1,38 +1,16 @@
-# sFO-MLA
 
-R and Rcpp implementations of the stochastic first-order Mirror Langevin Algorithm (sFO-MLA) and its warm-started two-loop variant for sampling from constrained distributions.
+Install the package required by the general-purpose implementation:
 
-The code accompanies the manuscript **"Two-Loop Stochastic Mirror Langevin Algorithms for Constrained Sampling."** It includes implementations and experiment scripts for Bayesian mixture-weight inference on the simplex and posterior sampling in Poisson graphical models with an intractable normalizing constant.
-
-## Description
-
-Mirror Langevin algorithms map a constrained sampling problem to an unconstrained dual space through a mirror map. Standard fixed-step implementations mix quickly at larger step sizes but retain a nonvanishing discretization error, while smaller step sizes reduce this error at the cost of slower mixing.
-
-The two-loop sFO-MLA implementation uses a geometric step-size schedule. At each outer epoch, the algorithm runs a fixed-step sFO-MLA chain for a corresponding number of inner iterations and warm-starts the next epoch from the current endpoint. The accompanying paper establishes finite-time Wasserstein bounds separating transient mixing, Euler-Maruyama discretization, and stochastic-gradient errors, and shows that the two-loop construction attains an \(O(T^{-1/2})\) rate under the stated assumptions.
-
-The repository contains two applications:
-
-- **Bayesian mixture weights:** sampling mixture weights on a simplex, with stochastic gradients obtained by minibatching observations.
-- **Poisson graphical models:** sampling a constrained posterior with an intractable normalizing constant, with stochastic gradients estimated by Monte Carlo simulation.
-
-For these two applications we write ad-hoc Rcpp code for fast implementation of our algorithm. The code is split into two folders. For the general-purpose code, please find sMLA.R in man.
-
-## Installation
-
-Clone the repository:
-
-```bash
-git clone https://github.com/RuitingDeposit/sFO-MLA.git
-cd sFO-MLA
+```r
+install.packages("nleqslv")
 ```
 
-Install the required R packages:
+To reproduce the model-specific Rcpp experiments and figures, install the additional packages:
 
 ```r
 install.packages(c(
   "Rcpp",
   "RcppArmadillo",
-  "nleqslv",
   "ks",
   "LaplacesDemon",
   "ggplot2",
@@ -43,65 +21,83 @@ install.packages(c(
 ))
 ```
 
-The Rcpp implementations are compiled when `Rcpp::sourceCpp()` is called, so a working C++ toolchain is also required. This repository contains research scripts rather than an installable R package.
+The model-specific Rcpp implementations are compiled when `Rcpp::sourceCpp()` is called, so reproducing those experiments also requires a working C++ toolchain. The general-purpose demonstration below uses only the R implementation. This repository contains research scripts rather than an installable R package.
 
-## Examples
+## Demonstration
 
-### Bayesian mixture weights on the simplex
+### General-purpose sFO-MLA
 
-The following example simulates observations from a three-component Gaussian mixture and runs the Rcpp implementation of two-loop sFO-MLA. Run it from the repository root.
+The demonstration in `demo/sFO_MLA_mixed_dist.Rmd` simulates observations from a three-component Gaussian mixture and applies the general-purpose `sMLA()` function. Run the following code from the repository root.
 
 ```r
-library(Rcpp)
+source("man/sMLA.R")
 
-sourceCpp("mixture_model_code/sFO_MLA_mixture_model.cpp")
-
-set.seed(1)
-
-n <- 500L
-n_components <- 3L
-alpha <- rep(2, n_components)
-true_weights <- c(0.2, 0.3, 0.5)
-
-classes <- sample.int(
-  n_components,
+# Prepare data.
+n <- 10000
+d <- 3
+alpha <- rep(2, d)
+theta <- rep(0.8 / d, d - 1)
+classes <- sample(
+  1:d,
   size = n,
-  replace = TRUE,
-  prob = true_weights
+  prob = c(theta, 1 - sum(theta)),
+  replace = TRUE
 )
-observations <- rnorm(n, mean = classes, sd = 0.2)
 
-# The first K - 1 mixture weights are free. The constraints are
-# theta_j >= 0 and sum(theta_1, ..., theta_{K-1}) <= 1.
-A <- rbind(
-  -diag(n_components - 1),
-  rep(1, n_components - 1)
-)
-b <- c(rep(0, n_components - 1), 1)
+# The component densities are Gaussian with means 1, ..., d
+# and standard deviation 0.2.
+x <- rnorm(n, mean = 0, sd = 0.2) + classes
 
-fit <- DMLA_new_grad_cpp_mix_lglik(
-  theta0 = rep(1 / n_components, n_components - 1),
-  x = observations,
-  alpha = alpha,
-  B = 20L,
-  eta0 = 0.05,
+evaluate_normal_density <- function(s, std, l) {
+  dens <- numeric(l)
+  for (k in 1:l) {
+    dens[k] <- dnorm(s, mean = k, sd = std)
+  }
+  dens
+}
+
+grad_est <- function(m, x, dat, alpha, std) {
+  x <- c(x, 1 - sum(x))
+  K <- length(x)
+  n <- length(dat)
+  grad <- numeric(K - 1)
+  indices <- sample(1:n, size = m)
+
+  for (j in 1:(K - 1)) {
+    for (i in indices) {
+      dens <- evaluate_normal_density(dat[i], std, l = K)
+      temp <- x * dens
+      grad[j] <- grad[j] -
+        (dnorm(dat[i], mean = j, sd = std) -
+           dnorm(dat[i], mean = K, sd = std)) / sum(temp)
+    }
+  }
+
+  grad * n / m -
+    (alpha[-K] - 1) / x[-K] +
+    (alpha[K] - 1) / x[K]
+}
+
+A <- rbind(-diag(d - 1), rep(1, d - 1))
+b <- c(rep(0, d - 1), 1)
+
+result_d3 <- sMLA(
+  grad = grad_est,
+  x0 = rep(1 / d, d - 1),
+  K = 135,
+  eta0 = 1,
   rho = 0.96,
   lam = 1,
-  multiplier = 0.05,
+  multiplier = 15,
   A = A,
   b = b,
   scale = n,
   message = TRUE,
-  m = 100L,
+  dat = x,
+  m = 2500,
+  alpha = rep(2, d),
   std = 0.2
 )
-
-last_free_weights <- fit$primal_samples[, ncol(fit$primal_samples)]
-estimated_weights <- c(
-  last_free_weights,
-  1 - sum(last_free_weights)
-)
-estimated_weights
 ```
 
 The returned list includes:
@@ -110,14 +106,17 @@ The returned list includes:
 - `dual_samples`: corresponding samples in the unconstrained dual space;
 - `all_x`: all inner-loop primal samples;
 - `outer_loop_indices`: locations of outer-epoch endpoints among the inner samples;
-- `all_log_liklihood`: log-posterior values recorded during sampling; and
 - `time`: elapsed runtime.
 
-An R-only reference implementation and a longer demonstration are available in `man/sMLA.R` and `demo/sFO_MLA_mixed_dist.Rmd`, respectively.
+The same example, organized as an R Markdown document, is available in `demo/sFO_MLA_mixed_dist.Rmd`.
+
+## Model-specific experiment implementations
+
+The Rcpp code in `mixture_model_code/` and `PGM_code/` is used for the two experiments in the paper. These implementations trade generality for speed and are separate from the general-purpose demonstration above.
 
 ### Poisson graphical model
 
-The Poisson graphical model implementation combines R helper functions with Rcpp/RcppArmadillo routines. Run the following setup from the repository root:
+The Poisson graphical model experiment uses an ad hoc implementation combining R helper functions with Rcpp/RcppArmadillo routines. It is included to reproduce the paper's PGM study rather than as the general-purpose interface. Run the following setup from the repository root:
 
 ```r
 setwd("PGM_code")
@@ -134,17 +133,17 @@ The main experiment files are:
 
 ```text
 demo/
-  sFO_MLA_mixed_dist.Rmd
+  sFO_MLA_mixed_dist.Rmd             # General-purpose R demonstration
 man/
-  sMLA.R
+  sMLA.R                             # General-purpose implementation
 mixture_model_code/
-  sFO_MLA_mixture_model.cpp
+  sFO_MLA_mixture_model.cpp          # Ad hoc mixture-model Rcpp code
   sFO_MLA_mixed_dist_main_experiments.Rmd
   sFO_MLA_mixed_dist_Plots.Rmd
   sFO_mixed_dist_test_minibatch_effect.Rmd
 PGM_code/
   PGM.R
-  PGM_sFO_MLA.cpp
+  PGM_sFO_MLA.cpp                    # Ad hoc PGM Rcpp code
   PGM_sFO_MLA_functions.R
   PGM_sFO_MLA.Rmd
 ```
