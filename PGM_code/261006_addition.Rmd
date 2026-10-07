@@ -11,7 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ### Adding band for d4  
 ```{r}
-source("DMLA_functions.R")
+source("PGM_sFO_MLA_functions.R")
 X_d4 = readRDS(file = "d4/data.RDS")
 
 S = t(X_d4)%*%X_d4
